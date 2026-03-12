@@ -1,0 +1,35 @@
+# ── Python ──
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+venv/
+.venv/
+
+# ── Secrets ──
+.env
+*.key
+*.pem
+service-account*.json
+
+# ── IDE ──
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Auto-generated ──
+generated_checks/*.py
+reports/*.json
+
+# ── Reference codebase (không thuộc project chính) ──
+agentic/
+
+# ── OS ──
+.DS_Store
+Thumbs.db
+
+# ── Claude Code ──
+.claude/
