@@ -24,6 +24,6 @@ def create_agent1(blocks_json_path: str) -> Agent:
         ),
         tools=[SearchToolkit(blocks_json_path=blocks_json_path)],
         instructions=load_skill("data-reader"),
-        response_model=BlockMappingData,
+        output_schema=BlockMappingData,
         structured_outputs=True,
     )

@@ -35,9 +35,8 @@ def load_skill(skill_name: str, skills_dir: str = "skills") -> list[str]:
     # Tách frontmatter (giữa 2 dấu ---) khỏi body
     body = _strip_frontmatter(content)
 
-    # Mỗi dòng non-empty thành 1 instruction
-    lines = [line for line in body.splitlines() if line.strip()]
-    return lines
+    # Trả về toàn bộ body (giữ dòng trống để bảo toàn format code template)
+    return [body]
 
 
 def load_skill_description(skill_name: str, skills_dir: str = "skills") -> str:

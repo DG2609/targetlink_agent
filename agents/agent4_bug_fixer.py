@@ -24,5 +24,6 @@ def create_agent4() -> Agent:
         tools=[CodeToolkit(output_dir=str(settings.GENERATED_CHECKS_DIR))],
         instructions=load_skill("bug-fixer"),
         markdown=True,
-        show_tool_calls=True,
+        debug_mode=True,
+        tool_call_limit=10,
     )

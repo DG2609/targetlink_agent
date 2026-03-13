@@ -5,9 +5,16 @@ Chỉ parse CLI args, setup logger, và gọi pipeline.
 
 import argparse
 import asyncio
+import io
 import json
 import sys
 from pathlib import Path
+
+# Force UTF-8 output trên Windows (tránh UnicodeEncodeError với tiếng Việt)
+if sys.stdout.encoding != "utf-8":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+if sys.stderr.encoding != "utf-8":
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 from utils.logger import setup_logger
 

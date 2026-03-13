@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     MAX_RETRY_AGENT4: int = 3
     MAX_RETRY_AGENT5: int = 3
     SANDBOX_TIMEOUT: int = 30  # seconds
+    MAX_CONCURRENT_RULES: int = 3  # Số rules xử lý song song (1 = tuần tự)
 
     @field_validator("GOOGLE_CLOUD_PROJECT")
     @classmethod

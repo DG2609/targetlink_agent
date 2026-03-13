@@ -29,6 +29,6 @@ def create_agent3(model_dir: str) -> Agent:
             )
         ],
         instructions=load_skill("validator"),
-        response_model=ValidationResult,
+        output_schema=ValidationResult,
         structured_outputs=True,
     )

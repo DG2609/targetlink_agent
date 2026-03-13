@@ -22,6 +22,6 @@ def create_agent0() -> Agent:
             location=settings.GOOGLE_CLOUD_LOCATION,
         ),
         instructions=load_skill("rule-analyzer"),
-        response_model=ParsedRule,
+        output_schema=ParsedRule,
         structured_outputs=True,
     )

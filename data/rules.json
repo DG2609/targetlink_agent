@@ -1,0 +1,10 @@
+[
+  {
+    "rule_id": "R001",
+    "description": "Tất cả Gain block phải có SaturateOnIntegerOverflow bằng 'on'"
+  },
+  {
+    "rule_id": "R002",
+    "description": "Tất cả Abs block phải có SaturateOnIntegerOverflow bằng 'off'"
+  }
+]

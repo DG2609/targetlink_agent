@@ -6,6 +6,11 @@ SLX sau khi unzip là 1 tree nhiều file XML, KHÔNG phải 1 file.
 Agent phải dùng list_xml_files() trước, rồi khám phá từng file.
 KHÔNG có tool đọc toàn bộ XML — agent phải explore từng phần.
 
+Tích hợp:
+  - LoopDetector: chặn agent gọi tool lặp liên tiếp cùng args
+  - truncate_output: cắt output lớn để bảo vệ context window
+  - shared_cache: chia sẻ parsed XML giữa Agent 2 & 5
+
 Agents sử dụng: Agent 2 (Code Generator), Agent 5 (Inspector)
 """
 
@@ -15,6 +20,9 @@ from pathlib import Path
 from lxml import etree
 from agno.tools import Toolkit
 
+from utils.loop_detector import LoopDetector
+from utils.output_truncator import truncate_output
+
 
 class XmlToolkit(Toolkit):
     """Cung cấp khả năng khám phá XML tree cho Agent.
@@ -22,12 +30,24 @@ class XmlToolkit(Toolkit):
     Model TargetLink (.slx) sau khi unzip chứa NHIỀU file XML.
     Agent dùng list_xml_files() trước, rồi chọn file để khám phá.
     Tất cả tools đều READ-ONLY. XML tree được cache per-file.
+
+    Features:
+      - Loop detection: chặn agent xoay vòng gọi cùng tool/args
+      - Output truncation: bảo vệ context window LLM
+      - Shared cache: truyền shared_cache để Agent 2 & 5 chia sẻ parsed XML
     """
 
-    def __init__(self, model_dir: str):
+    def __init__(
+        self,
+        model_dir: str,
+        shared_cache: dict[str, etree._ElementTree] | None = None,
+    ):
         super().__init__(name="xml_tools")
         self.model_dir = model_dir
-        self._tree_cache: dict[str, etree._ElementTree] = {}
+        self._tree_cache: dict[str, etree._ElementTree] = (
+            shared_cache if shared_cache is not None else {}
+        )
+        self._loop_detector = LoopDetector(max_repeats=3)
 
         self.register(self.list_xml_files)
         self.register(self.read_xml_structure)
@@ -66,6 +86,9 @@ class XmlToolkit(Toolkit):
         Returns:
             JSON array các file XML, mỗi entry gồm: path (relative), size_kb, root_tag, children_count.
         """
+        # Reset loop detector — agent mới bắt đầu khám phá
+        self._loop_detector.reset()
+
         model_path = Path(self.model_dir)
         xml_files = sorted(model_path.rglob("*.xml"))
 
@@ -74,11 +97,11 @@ class XmlToolkit(Toolkit):
             rel_path = str(xml_file.relative_to(model_path)).replace("\\", "/")
             size_kb = round(xml_file.stat().st_size / 1024, 1)
 
-            # Đọc root tag nhanh (không parse toàn bộ)
             root_tag = "?"
             children_count = 0
             try:
-                tree = etree.parse(str(xml_file))
+                # Dùng _get_tree() để cache — tránh parse lại khi agent gọi tool khác
+                tree = self._get_tree(rel_path)
                 root = tree.getroot()
                 root_tag = root.tag
                 children_count = len(root)
@@ -116,6 +139,13 @@ class XmlToolkit(Toolkit):
         Returns:
             JSON mô tả các nodes tìm thấy (tag, attribs, children).
         """
+        # Loop detection
+        loop_hint = self._loop_detector.check(
+            "read_xml_structure", xml_file=xml_file, xpath=xpath
+        )
+        if loop_hint:
+            return loop_hint
+
         xml_file = self._safe_xml_file(xml_file)
         tree = self._get_tree(xml_file)
 
@@ -150,7 +180,9 @@ class XmlToolkit(Toolkit):
             results.append(info)
 
         summary = f"[{xml_file}] Tìm thấy {len(nodes)} nodes (hiển thị {len(results)}):\n"
-        return summary + json.dumps(results, indent=2, ensure_ascii=False)
+        return truncate_output(
+            summary + json.dumps(results, indent=2, ensure_ascii=False)
+        )
 
     # ──────────────────────────────────────────────
     # Tool 2: test_xpath_query
@@ -169,6 +201,13 @@ class XmlToolkit(Toolkit):
         Returns:
             JSON array tối đa 20 kết quả.
         """
+        # Loop detection
+        loop_hint = self._loop_detector.check(
+            "test_xpath_query", xml_file=xml_file, xpath=xpath
+        )
+        if loop_hint:
+            return loop_hint
+
         xml_file = self._safe_xml_file(xml_file)
         tree = self._get_tree(xml_file)
 
@@ -197,7 +236,9 @@ class XmlToolkit(Toolkit):
                 results.append({"type": "other", "value": str(node)[:200]})
 
         summary = f"[{xml_file}] XPath match {len(nodes)} kết quả (hiển thị {len(results)}):\n"
-        return summary + json.dumps(results, indent=2, ensure_ascii=False)
+        return truncate_output(
+            summary + json.dumps(results, indent=2, ensure_ascii=False)
+        )
 
     # ──────────────────────────────────────────────
     # Tool 3: deep_search_xml_text
@@ -218,6 +259,13 @@ class XmlToolkit(Toolkit):
         Returns:
             JSON array các nodes match. Mỗi entry gồm: match_in, tag, value, xpath.
         """
+        # Loop detection
+        loop_hint = self._loop_detector.check(
+            "deep_search_xml_text", xml_file=xml_file, regex_pattern=regex_pattern
+        )
+        if loop_hint:
+            return loop_hint
+
         xml_file = self._safe_xml_file(xml_file)
         tree = self._get_tree(xml_file)
         root = tree.getroot()
@@ -265,7 +313,10 @@ class XmlToolkit(Toolkit):
         if not results:
             return f"Không tìm thấy gì match regex: {regex_pattern} (trong {xml_file})"
 
-        return f"[{xml_file}] Tìm thấy {len(results)} matches:\n" + json.dumps(results, indent=2, ensure_ascii=False)
+        return truncate_output(
+            f"[{xml_file}] Tìm thấy {len(results)} matches:\n"
+            + json.dumps(results, indent=2, ensure_ascii=False)
+        )
 
     # ──────────────────────────────────────────────
     # Tool 4: read_parent_nodes
@@ -284,6 +335,13 @@ class XmlToolkit(Toolkit):
         Returns:
             JSON array từ root → target node. Mỗi entry gồm: depth, tag, attribs.
         """
+        # Loop detection
+        loop_hint = self._loop_detector.check(
+            "read_parent_nodes", xml_file=xml_file, xpath=xpath
+        )
+        if loop_hint:
+            return loop_hint
+
         xml_file = self._safe_xml_file(xml_file)
         tree = self._get_tree(xml_file)
 
@@ -317,4 +375,6 @@ class XmlToolkit(Toolkit):
 
         node_path = tree.getpath(node)
         summary = f"[{xml_file}] Ancestry chain cho node tại {node_path} ({len(chain)} levels):\n"
-        return summary + json.dumps(chain, indent=2, ensure_ascii=False)
+        return truncate_output(
+            summary + json.dumps(chain, indent=2, ensure_ascii=False)
+        )

@@ -12,7 +12,13 @@ from tools.code_tools import CodeToolkit
 from utils.skill_loader import load_skill
 
 
-def create_agent2(model_dir: str) -> Agent:
+def create_agent2(xml_toolkit: XmlToolkit, output_dir: str) -> Agent:
+    """Tạo Agent 2 với shared XmlToolkit (chia sẻ cache với Agent 5).
+
+    Args:
+        xml_toolkit: Instance XmlToolkit đã khởi tạo (shared cache).
+        output_dir: Thư mục output cho generated code.
+    """
     return Agent(
         name="Code Generator",
         role="Senior Python Developer viết rule checking scripts",
@@ -23,10 +29,11 @@ def create_agent2(model_dir: str) -> Agent:
             location=settings.GOOGLE_CLOUD_LOCATION,
         ),
         tools=[
-            XmlToolkit(model_dir=model_dir),
-            CodeToolkit(output_dir=str(settings.GENERATED_CHECKS_DIR)),
+            xml_toolkit,
+            CodeToolkit(output_dir=output_dir),
         ],
         instructions=load_skill("code-generator"),
         markdown=True,
-        show_tool_calls=True,
+        debug_mode=True,
+        tool_call_limit=15,
     )

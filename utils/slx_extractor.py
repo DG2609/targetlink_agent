@@ -11,6 +11,7 @@ File .slx thực chất là ZIP archive chứa một TREE gồm nhiều file XML
 Agent KHÔNG được đọc toàn bộ tree — phải dùng tools để khám phá từng file.
 """
 
+import atexit
 import zipfile
 import tempfile
 import shutil
@@ -19,6 +20,16 @@ from pathlib import Path
 
 # Cache: tránh extract lại cùng 1 file nếu chạy nhiều rules
 _extract_cache: dict[str, str] = {}
+
+
+def _cleanup_temp_dirs():
+    """Dọn tất cả thư mục temp đã extract khi process kết thúc."""
+    for path in _extract_cache.values():
+        shutil.rmtree(path, ignore_errors=True)
+    _extract_cache.clear()
+
+
+atexit.register(_cleanup_temp_dirs)
 
 
 def extract_slx(slx_path: str) -> str:

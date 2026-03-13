@@ -12,7 +12,13 @@ from tools.code_tools import CodeToolkit
 from utils.skill_loader import load_skill
 
 
-def create_agent5(model_dir: str) -> Agent:
+def create_agent5(xml_toolkit: XmlToolkit, output_dir: str) -> Agent:
+    """Tạo Agent 5 với shared XmlToolkit (chia sẻ cache với Agent 2).
+
+    Args:
+        xml_toolkit: Instance XmlToolkit đã khởi tạo (shared cache).
+        output_dir: Thư mục output cho rewritten code.
+    """
     return Agent(
         name="Model Inspector",
         role="Data Detective điều tra XML tree tìm nguyên nhân kết quả sai",
@@ -23,10 +29,11 @@ def create_agent5(model_dir: str) -> Agent:
             location=settings.GOOGLE_CLOUD_LOCATION,
         ),
         tools=[
-            XmlToolkit(model_dir=model_dir),
-            CodeToolkit(output_dir=str(settings.GENERATED_CHECKS_DIR)),
+            xml_toolkit,
+            CodeToolkit(output_dir=output_dir),
         ],
         instructions=load_skill("model-inspector"),
         markdown=True,
-        show_tool_calls=True,
+        debug_mode=True,
+        tool_call_limit=20,
     )

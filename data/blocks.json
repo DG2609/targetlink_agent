@@ -1,0 +1,37 @@
+[
+  {
+    "name_ui": "Gain",
+    "name_xml": "Gain",
+    "description": "Gain block — nhân tín hiệu đầu vào với hằng số. Trong XML: <Block BlockType='Gain'>. Properties nằm trong <P Name='...'> là children trực tiếp. Properties quan trọng: Gain (giá trị nhân), SaturateOnIntegerOverflow (on/off — bảo vệ overflow khi tính toán integer), ParamDataTypeStr (kiểu dữ liệu tham số), OutDataTypeStr (kiểu output), RndMeth (phương pháp làm tròn). QUAN TRỌNG: Blocks nằm trong các file simulink/systems/system_*.xml, KHÔNG nằm trong blockdiagram.xml. blockdiagram.xml chỉ chứa reference <System Ref='system_root'/>, blocks thật nằm trong system files. Cần search TẤT CẢ file system*.xml."
+  },
+  {
+    "name_ui": "Abs",
+    "name_xml": "Abs",
+    "description": "Absolute value block — tính giá trị tuyệt đối. Trong XML: <Block BlockType='Abs'>. Properties: SaturateOnIntegerOverflow (on/off). QUAN TRỌNG: Blocks nằm trong simulink/systems/system_*.xml. Trong model này, Abs blocks CHỈ xuất hiện ở system_root.xml, không có trong subsystem. Cần search TẤT CẢ file system*.xml để đảm bảo tìm đủ."
+  },
+  {
+    "name_ui": "Sum",
+    "name_xml": "Sum",
+    "description": "Sum block — cộng/trừ tín hiệu. Trong XML: <Block BlockType='Sum'>. Properties: Inputs (pattern +/- ), IconShape (rectangular/round), SaturateOnIntegerOverflow (on/off), OutDataTypeStr, RndMeth. Blocks nằm trong simulink/systems/system_*.xml."
+  },
+  {
+    "name_ui": "Delay",
+    "name_xml": "Delay",
+    "description": "Delay block — giữ tín hiệu N bước. Trong XML: <Block BlockType='Delay'>. Properties: DelayLength, InitialCondition, InputPortMap. Blocks nằm trong simulink/systems/system_*.xml."
+  },
+  {
+    "name_ui": "Inport",
+    "name_xml": "Inport",
+    "description": "Input port — cổng vào. Trong XML: <Block BlockType='Inport'>. Properties: SampleTime. Xuất hiện ở mọi system files (root + subsystems)."
+  },
+  {
+    "name_ui": "Outport",
+    "name_xml": "Outport",
+    "description": "Output port — cổng ra. Trong XML: <Block BlockType='Outport'>. Xuất hiện ở mọi system files."
+  },
+  {
+    "name_ui": "SubSystem",
+    "name_xml": "SubSystem",
+    "description": "Subsystem — hệ thống con. Trong XML: <Block BlockType='SubSystem'>. Chứa <System Ref='system_*'/> trỏ tới file XML khác trong simulink/systems/."
+  }
+]
