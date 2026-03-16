@@ -1,14 +1,24 @@
 [
   {
     "rule_id": "R001",
-    "expected_total_blocks": 19,
-    "expected_pass": 18,
-    "expected_fail": 1
+    "test_cases": [
+      {
+        "model_path": "data/model4_CcodeGeneration.slx",
+        "expected_total_blocks": 19,
+        "expected_pass": 18,
+        "expected_fail": 1
+      }
+    ]
   },
   {
     "rule_id": "R002",
-    "expected_total_blocks": 2,
-    "expected_pass": 2,
-    "expected_fail": 0
+    "test_cases": [
+      {
+        "model_path": "data/model4_CcodeGeneration.slx",
+        "expected_total_blocks": 2,
+        "expected_pass": 2,
+        "expected_fail": 0
+      }
+    ]
   }
 ]

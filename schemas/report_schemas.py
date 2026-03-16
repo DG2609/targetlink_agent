@@ -1,6 +1,6 @@
 """
 Schemas cho kết quả cuối cùng.
-  - InspectionResult: output của Agent 5 (Inspector)
+  - PipelineStep: 1 bước trong pipeline (agent call + timing)
   - RuleReport: kết quả 1 rule
   - FinalReport: báo cáo tổng hợp
 """
@@ -12,12 +12,15 @@ from pydantic import BaseModel, Field
 from schemas.validation_schemas import ValidationStatus, ValidationResult
 
 
-class InspectionResult(BaseModel):
-    """Output của Agent 5 — điều tra XML và viết lại code."""
-    rule_id: str
-    findings: str                    # VD: "Block dùng MaskType thay vì BlockType"
-    hypothesis_tested: list[str]     # Danh sách giả thuyết đã test
-    new_code_file_path: str
+class PipelineStep(BaseModel):
+    """1 bước trong pipeline — tracking agent call + timing."""
+    agent_name: str
+    started_at: str = ""
+    finished_at: str = ""
+    duration_seconds: float = 0.0
+    status: str = "success"  # "success", "error", "skipped"
+    input_summary: str = ""
+    output_summary: str = ""
 
 
 class RuleReport(BaseModel):
@@ -30,6 +33,8 @@ class RuleReport(BaseModel):
     generated_script: str = ""
     needs_human_review: bool = False
     pipeline_trace: list[dict] = Field(default_factory=list)
+    pipeline_steps: list[PipelineStep] = Field(default_factory=list)
+    rule_duration_seconds: float = 0.0
     error_detail: Optional[str] = None
 
     @classmethod
@@ -43,6 +48,7 @@ class RuleReport(BaseModel):
         is_failed = result.status in (
             ValidationStatus.FAILED_CODE_ERROR,
             ValidationStatus.FAILED_WRONG_RESULT,
+            ValidationStatus.FAILED_PARTIAL_PASS,
         )
         return cls(
             rule_id=rule_id,
@@ -63,11 +69,17 @@ class FinalReport(BaseModel):
     model_file: str
     total_rules: int
     results: list[RuleReport]
+    total_duration_seconds: float = 0.0
 
     @property
     def summary(self) -> dict:
+        partial = sum(
+            1 for r in self.results
+            if r.status == ValidationStatus.FAILED_PARTIAL_PASS
+        )
         return {
             "pass": sum(1 for r in self.results if r.status == ValidationStatus.PASS),
+            "partial_pass": partial,
             "failed": sum(1 for r in self.results if r.needs_human_review),
             "total": self.total_rules,
         }

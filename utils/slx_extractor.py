@@ -65,6 +65,12 @@ def extract_slx(slx_path: str) -> str:
 
     try:
         with zipfile.ZipFile(slx, "r") as zf:
+            # Zip Slip protection: validate paths trước khi extract
+            for info in zf.infolist():
+                target = (tmp_dir / info.filename).resolve()
+                if not str(target).startswith(str(tmp_dir.resolve())):
+                    shutil.rmtree(tmp_dir, ignore_errors=True)
+                    raise ValueError(f"Zip Slip detected: {info.filename}")
             zf.extractall(tmp_dir)
     except zipfile.BadZipFile as e:
         shutil.rmtree(tmp_dir, ignore_errors=True)

@@ -74,18 +74,41 @@ async def main_async(args: argparse.Namespace) -> int:
 
     # Exit code: 0 nếu tất cả PASS, 1 nếu có rule cần human review
     summary = report.summary
+
+    # ── Human-readable summary table ──
+    print("\n" + "=" * 70, file=sys.stderr)
+    print(f"  PIPELINE SUMMARY — {summary['total']} rules", file=sys.stderr)
+    print("=" * 70, file=sys.stderr)
+    print(f"  {'Rule':<10} {'Status':<22} {'Duration':>10} {'Retries':>8}", file=sys.stderr)
+    print("-" * 70, file=sys.stderr)
+    for r in report.results:
+        retries = len(r.pipeline_trace)
+        duration = f"{r.rule_duration_seconds:.1f}s" if r.rule_duration_seconds else "—"
+        print(f"  {r.rule_id:<10} {r.status.value:<22} {duration:>10} {retries:>8}", file=sys.stderr)
+    print("-" * 70, file=sys.stderr)
+    partial_info = f" | Partial: {summary['partial_pass']}" if summary.get('partial_pass', 0) > 0 else ""
     print(
-        f"\n[SUMMARY] Pass: {summary['pass']}/{summary['total']} | "
-        f"Cần xem lại: {summary['failed']}",
+        f"  Pass: {summary['pass']}/{summary['total']} | "
+        f"Failed: {summary['failed']}{partial_info} | "
+        f"Total: {report.total_duration_seconds:.1f}s",
         file=sys.stderr,
     )
+    print("=" * 70, file=sys.stderr)
+
     return 1 if summary["failed"] > 0 else 0
 
 
 def main() -> None:
     args = parse_args()
     setup_logger(log_level=args.log_level)
-    exit_code = asyncio.run(main_async(args))
+    try:
+        exit_code = asyncio.run(main_async(args))
+    except KeyboardInterrupt:
+        print("\n[INFO] Bị ngắt bởi người dùng (Ctrl+C).", file=sys.stderr)
+        exit_code = 130
+    except Exception as e:
+        print(f"\n[FATAL] Pipeline lỗi không xử lý được: {e}", file=sys.stderr)
+        exit_code = 2
     sys.exit(exit_code)
 
 

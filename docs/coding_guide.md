@@ -17,18 +17,16 @@ targetlink/
 │
 ├── schemas/                         # Pydantic models — DATA CONTRACT giữa agents
 │   ├── __init__.py
-│   ├── rule_schemas.py              # ParsedRule, RuleInput
-│   ├── block_schemas.py             # BlockMappingData, BlockDictEntry
-│   ├── code_schemas.py              # GeneratedCode, PatchedCode
-│   ├── validation_schemas.py        # ValidationResult, ValidationStatus
-│   └── report_schemas.py            # InspectionResult, FinalReport
+│   ├── rule_schemas.py              # RuleInput, RuleCondition, ParsedRule
+│   ├── block_schemas.py             # BlockMappingData
+│   ├── validation_schemas.py        # TestCase, ValidationStatus, ValidationResult
+│   └── report_schemas.py            # RuleReport, FinalReport
 │
 ├── tools/                           # Tool functions — KHẢ NĂNG của agents
 │   ├── __init__.py
-│   ├── xml_tools.py                 # read_xml_structure, test_xpath_query, deep_search_xml_text, read_parent_nodes
-│   ├── search_tools.py              # fuzzy_search_json, read_dictionary
-│   ├── code_tools.py                # write_python_file, read_python_file, patch_python_file, rewrite_advanced_code
-│   └── sandbox_tools.py             # sandbox_execute_python, compare_json_result
+│   ├── xml_tools.py                 # XmlToolkit: build_model_hierarchy, find_blocks_recursive, query_config, ...
+│   ├── search_tools.py              # SearchToolkit: fuzzy_search_json, read_dictionary
+│   └── code_tools.py                # CodeToolkit: write_python_file, read_python_file, patch_python_file, rewrite_advanced_code
 │
 ├── agents/                          # Agent definitions — CHỈ khai báo Agent, KHÔNG chứa logic
 │   ├── __init__.py
@@ -131,16 +129,26 @@ def run_agent2(parsed_rule, block_data, model_dir):
 
 ### ✅ ĐÚNG — Mỗi file 1 trách nhiệm
 
-**File `schemas/code_schemas.py`** — Chỉ khai báo data structure:
+**File `schemas/rule_schemas.py`** — Chỉ khai báo data structure:
 ```python
-from pydantic import BaseModel
+from enum import Enum
+from pydantic import BaseModel, Field
 
-class GeneratedCode(BaseModel):
-    """Output của Agent 2/4/5: code Python đã sinh."""
-    rule_id: str
-    file_path: str
-    code_content: str
-    generation_note: str  # "first_gen" / "patched" / "rewritten"
+class RuleCondition(str, Enum):
+    EQUAL = "equal"
+    NOT_EQUAL = "not_equal"
+    NOT_EMPTY = "not_empty"
+    CONTAINS = "contains"
+    IN_LIST = "in_list"
+
+class ParsedRule(BaseModel):
+    """Output của Agent 0 — dữ liệu cấu trúc từ rule text."""
+    rule_id: str = ""
+    block_keyword: str
+    rule_alias: str
+    config_name: str
+    condition: RuleCondition
+    expected_value: str
 ```
 
 **File `tools/xml_tools.py`** — Chỉ implement tool functions:
@@ -260,8 +268,7 @@ tools/
 ├── __init__.py              # Export tất cả Toolkits
 ├── xml_tools.py             # XmlToolkit class — cho Agent 2, 5
 ├── search_tools.py          # SearchToolkit class — cho Agent 1
-├── code_tools.py            # CodeToolkit class — cho Agent 2, 4, 5
-└── sandbox_tools.py         # SandboxToolkit class — cho Agent 3
+└── code_tools.py            # CodeToolkit class — cho Agent 2, 4, 5
 ```
 
 **Ví dụ rút gọn `tools/xml_tools.py`:**
@@ -345,11 +352,10 @@ class XmlToolkit(Toolkit):
 ```
 schemas/
 ├── __init__.py                  # Re-export tất cả
-├── rule_schemas.py              # Agent 0 input/output
-├── block_schemas.py             # Agent 1 output
-├── code_schemas.py              # Agent 2/4/5 output
-├── validation_schemas.py        # Agent 3 output
-└── report_schemas.py            # Final output
+├── rule_schemas.py              # RuleInput, RuleCondition, ParsedRule (Agent 0)
+├── block_schemas.py             # BlockMappingData (Agent 1)
+├── validation_schemas.py        # TestCase, ValidationStatus, ValidationResult (Agent 3)
+└── report_schemas.py            # RuleReport, FinalReport
 ```
 
 **Ví dụ `schemas/validation_schemas.py`:**
@@ -383,8 +389,10 @@ class ValidationResult(BaseModel):
     stderr: Optional[str] = Field(default=None, description="Standard error từ sandbox")
     actual_result: Optional[dict] = Field(default=None, description="Kết quả chạy thực tế")
     expected_result: Optional[dict] = Field(default=None, description="Kết quả mong đợi từ user")
-    retry_count: int = Field(default=0, ge=0, le=6, description="Số lần đã retry (max 3 cho Agent 4 + 3 cho Agent 5)")
-    code_file_path: str = Field(description="Đường dẫn tới file code hiện tại")
+    failed_test_case: Optional[str] = Field(default=None, description="model_path của test case bị fail")
+    test_cases_passed: int = Field(default=0, ge=0)
+    test_cases_total: int = Field(default=0, ge=0)
+    code_file_path: str = Field(default="", description="Đường dẫn tới file code hiện tại")
 ```
 
 ---
@@ -443,40 +451,41 @@ def create_agent2(model_dir: str) -> Agent:
 
 ```python
 """
-Agent 3: Validator (Reviewer)
-Vai trò: Chạy code trong sandbox → So sánh kết quả với expected.
+Agent 3: Validator — Pure Python, KHÔNG dùng LLM.
+Chạy generated code trên từng test case model, so sánh stdout với expected.
 """
 
-from agno.agent import Agent
-from agno.models.google import Gemini
+import json
+import subprocess
+import sys
+from pathlib import Path
 
-from config import settings
-from tools.sandbox_tools import SandboxToolkit
-from schemas.validation_schemas import ValidationResult
-from utils.skill_loader import load_skill
+from schemas.validation_schemas import TestCase, ValidationResult, ValidationStatus
+from utils.slx_extractor import extract_slx
 
 
-def create_agent3(model_dir: str) -> Agent:
-    """Factory function tạo Agent 3."""
-    return Agent(
-        name="Validator",
-        role="QA Tester chạy code sandbox và đối chiếu kết quả",
-        model=Gemini(
-            id=settings.GEMINI_MODEL,
-            vertexai=True,
-            project_id=settings.GOOGLE_CLOUD_PROJECT,
-            location=settings.GOOGLE_CLOUD_LOCATION,
-        ),
-        tools=[
-            SandboxToolkit(
-                model_dir=model_dir,
-                timeout=settings.SANDBOX_TIMEOUT,
-            )
-        ],
-        instructions=load_skill("validator"),
-        response_model=ValidationResult,
-        structured_outputs=True,
-    )
+class Validator:
+    """Chạy code sandbox và đối chiếu kết quả. Pure Python."""
+
+    def __init__(self, timeout: int = 30):
+        self.timeout = timeout
+
+    def validate(self, code_file: str, test_cases: list[TestCase], rule_id: str) -> ValidationResult:
+        """Chạy code trên từng test case, dừng ở test case đầu tiên FAIL."""
+        for i, tc in enumerate(test_cases):
+            model_dir = extract_slx(tc.model_path)
+            exec_result = self._execute(code_file, model_dir)
+            if exec_result["exit_code"] != 0:
+                return ValidationResult(rule_id=rule_id, status=ValidationStatus.CODE_ERROR, ...)
+            comparison = self._compare(exec_result["stdout"], tc)
+            if not comparison["match"]:
+                return ValidationResult(rule_id=rule_id, status=ValidationStatus.WRONG_RESULT, ...)
+        return ValidationResult(rule_id=rule_id, status=ValidationStatus.PASS, ...)
+
+
+def create_agent3(timeout: int = 30) -> Validator:
+    """Factory function — giữ interface đồng bộ với các agent khác."""
+    return Validator(timeout=timeout)
 ```
 
 ---
@@ -598,7 +607,6 @@ from typing import Any
 
 from schemas.rule_schemas import ParsedRule
 from schemas.block_schemas import BlockMappingData
-from schemas.code_schemas import GeneratedCode
 from schemas.validation_schemas import ValidationResult, ValidationStatus
 from schemas.report_schemas import FinalReport, RuleReport
 
@@ -737,7 +745,7 @@ def route_validation(
         context = (
             f"File bị lỗi: {result.code_file_path}\n"
             f"Error:\n{result.stderr}\n"
-            f"Lần retry: {result.retry_count}"
+            f"Lần retry: {retry_counts}"
         )
         return ("agent4", context)
 
@@ -747,7 +755,7 @@ def route_validation(
             f"Actual: {result.actual_result}\n"
             f"Expected: {result.expected_result}\n"
             f"Block info: {block_data.config_map_analysis}\n"
-            f"Lần retry: {result.retry_count}"
+            f"Lần retry: {retry_counts}"
         )
         return ("agent5", context)
 
@@ -933,7 +941,7 @@ Patterns học được từ `D:\targetlink\agentic\` (LangGraph) và áp dụng
 | Role-based tool access (Planner/Coder) | Agent 0-1 read-only, Agent 2-5 có write | `agentic/agent/graph.py` |
 | Output truncation | Tool trả max 50 results, cắt text > 200 chars | `agentic/agent/tools/truncation.py` |
 | Retry + doom loop detection | `pipeline/retry.py` — max 3 retries | `agentic/agent/nodes.py` |
-| Sandbox execution | `tools/sandbox_tools.py` — subprocess isolation | `agentic/agent/sandbox.py` |
+| Sandbox execution | Agent 3 (`Validator` class) — subprocess isolation | `agentic/agent/sandbox.py` |
 | Factory pattern cho agents | `create_agentX()` functions | Adapted from Agno docs |
 
 ---

@@ -1,66 +1,52 @@
 ---
 name: validator
-description: Chạy code check rule trong sandbox (subprocess cách ly), rồi so sánh kết quả với test case expected. Dùng khi cần validate code do Agent 2/4/5 sinh ra — trả về PASS, CODE_ERROR, hoặc WRONG_RESULT.
+description: Agent 3 — pure Python, không LLM. Chạy generated code trên từng test case model (subprocess), so sánh stdout JSON với expected result. Trả về PASS, CODE_ERROR, hoặc WRONG_RESULT.
 ---
 
 # Validator
 
-Chạy code sandbox và đánh giá kết quả.
-
-## Tools được cấp
-
-- `sandbox_execute_python(file_path)` — chạy file .py trong subprocess (timeout 30s)
-- `compare_json_result(actual_json, expected_json)` — so sánh kết quả
+Chạy code sandbox trên nhiều test case và đánh giá kết quả. **Không dùng LLM.**
 
 ## Quy trình
 
-**Bước 1**: Chạy code
 ```
-sandbox_execute_python("generated_checks/check_rule_R001.py")
-```
-
-**Bước 2**: Kiểm tra kết quả
-```
-Nếu exit_code != 0 hoặc stderr không rỗng:
-  → status = CODE_ERROR
-  → Chuyển cho Agent 4 (Bug Fixer)
-
-Nếu exit_code == 0 và stderr rỗng:
-  → Parse stdout thành JSON
-  → Tiếp bước 3
+for each test_case in rule.test_cases:
+    1. extract_slx(test_case.model_path) → model_dir
+    2. subprocess.run(code_file, model_dir) → stdout, stderr, exit_code
+    3. if exit_code != 0 → CODE_ERROR, dừng ngay (code hỏng)
+    4. compare stdout JSON vs expected → ghi nhận pass/fail, TIẾP TỤC chạy
+→ Tất cả pass → PASS
+→ Có pass + có fail → PARTIAL_PASS
+→ Tất cả fail → WRONG_RESULT
 ```
 
-**Bước 3**: So sánh với expected
-```
-compare_json_result(stdout, expected_json)
-```
-```
-Nếu match = true:
-  → status = PASS ✅
+## Input
 
-Nếu match = false:
-  → status = WRONG_RESULT
-  → Chuyển cho Agent 5 (Inspector)
-```
+- `code_file`: path tới file .py do Agent 2 sinh ra
+- `test_cases`: list TestCase, mỗi cái gồm:
+  - `model_path`: đường dẫn .slx
+  - `expected_total_blocks`: int
+  - `expected_pass`: int
+  - `expected_fail`: int
 
-## Output Schema
+## Output: ValidationResult
 
-```json
-{
-  "rule_id": "R001",
-  "status": "PASS | CODE_ERROR | WRONG_RESULT",
-  "stdout": "...",
-  "stderr": "...",
-  "actual_result": {},
-  "expected_result": {},
-  "code_file_path": "generated_checks/check_rule_R001.py"
-}
-```
+| Field | Mô tả |
+|-------|--------|
+| status | PASS / PARTIAL_PASS / CODE_ERROR / WRONG_RESULT |
+| stdout | stdout từ test case fail đầu tiên (nếu có) |
+| stderr | stderr từ test case fail (nếu có) |
+| actual_result | dict {total_blocks, pass_count, fail_count} |
+| expected_result | dict {total_blocks, pass, fail} |
+| failed_test_case | model_path của test case fail đầu tiên |
+| test_cases_passed | tổng số test case đã pass |
+| test_cases_total | tổng số test case |
 
 ## Bảng quyết định routing
 
 | status | Hành động | Agent tiếp theo |
 |--------|----------|-----------------|
 | PASS | Ghi report, chuyển rule tiếp | Không |
-| CODE_ERROR | Gửi stderr + file path | Agent 4 (max 3 retries) |
-| WRONG_RESULT | Gửi actual vs expected + block info | Agent 5 (max 3 retries) |
+| CODE_ERROR | Gửi stderr + file path + test case | Agent 4 (max 3 retries) |
+| WRONG_RESULT | Gửi actual vs expected + test case | Agent 5 (max 3 retries) |
+| PARTIAL_PASS | Code OK nhưng logic sai một số model → agent5 | Agent 5 (max 3 retries) |

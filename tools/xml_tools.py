@@ -16,12 +16,15 @@ Agents sử dụng: Agent 2 (Code Generator), Agent 5 (Inspector)
 
 import json
 import re
+import threading
 from pathlib import Path
 from lxml import etree
 from agno.tools import Toolkit
 
 from utils.loop_detector import LoopDetector
+from utils.model_index import ModelIndex
 from utils.output_truncator import truncate_output
+from utils.block_discoverer import discover_blocks
 
 
 class XmlToolkit(Toolkit):
@@ -47,21 +50,40 @@ class XmlToolkit(Toolkit):
         self._tree_cache: dict[str, etree._ElementTree] = (
             shared_cache if shared_cache is not None else {}
         )
+        self._cache_lock = threading.Lock()
         self._loop_detector = LoopDetector(max_repeats=3)
+        self._model_index = ModelIndex(
+            model_dir=model_dir, xml_cache=self._tree_cache,
+        )
 
         self.register(self.list_xml_files)
         self.register(self.read_xml_structure)
         self.register(self.test_xpath_query)
         self.register(self.deep_search_xml_text)
         self.register(self.read_parent_nodes)
+        self.register(self.build_model_hierarchy)
+        self.register(self.find_blocks_recursive)
+        self.register(self.query_config)
+        self.register(self.trace_connections)
+        self.register(self.read_raw_block_config)
+        self.register(self.list_all_configs)
+        self.register(self.trace_cross_subsystem)
+        self.register(self.auto_discover_blocks)
+
+    def reset_loop_detector(self) -> None:
+        """Reset loop detector — gọi khi chuyển sang agent khác dùng cùng toolkit."""
+        self._loop_detector.reset()
 
     def _get_tree(self, xml_file: str) -> etree._ElementTree:
-        """Lazy load và cache XML tree cho từng file."""
+        """Lazy load và cache XML tree cho từng file. Thread-safe."""
         if xml_file not in self._tree_cache:
-            full_path = Path(self.model_dir) / xml_file
-            if not full_path.exists():
-                raise FileNotFoundError(f"File không tồn tại trong model tree: {xml_file}")
-            self._tree_cache[xml_file] = etree.parse(str(full_path))
+            with self._cache_lock:
+                # Double-check sau khi lấy lock (tránh parse trùng)
+                if xml_file not in self._tree_cache:
+                    full_path = Path(self.model_dir) / xml_file
+                    if not full_path.exists():
+                        raise FileNotFoundError(f"File không tồn tại trong model tree: {xml_file}")
+                    self._tree_cache[xml_file] = etree.parse(str(full_path))
         return self._tree_cache[xml_file]
 
     def _safe_xml_file(self, xml_file: str) -> str:
@@ -378,3 +400,168 @@ class XmlToolkit(Toolkit):
         return truncate_output(
             summary + json.dumps(chain, indent=2, ensure_ascii=False)
         )
+
+    # ══════════════════════════════════════════════
+    # Tools mới: Model-level (cross-file, hierarchy-aware)
+    # ══════════════════════════════════════════════
+
+    def build_model_hierarchy(self) -> str:
+        """Xem cây subsystem của model: Root → SubSystem → Sub-SubSystem...
+
+        Dùng ĐẦU TIÊN (cùng list_xml_files) để hiểu tổng quan cấu trúc model.
+        Mỗi node cho biết: tên subsystem, file chứa, số blocks theo type.
+
+        Returns:
+            JSON cây subsystem kèm blocks_summary per level.
+        """
+        hierarchy = self._model_index.build_hierarchy()
+        return truncate_output(
+            "Model hierarchy:\n"
+            + json.dumps(hierarchy, indent=2, ensure_ascii=False)
+        )
+
+    def find_blocks_recursive(self, block_type: str) -> str:
+        """Tìm TẤT CẢ blocks of type xuyên mọi subsystem layers.
+
+        Tìm cả BlockType lẫn MaskType (TargetLink blocks).
+        Trả về kèm full subsystem path và tất cả configs.
+
+        Args:
+            block_type: Loại block cần tìm.
+                        VD: "Gain", "Abs", "Sum", "Inport", "SubSystem"
+
+        Returns:
+            JSON list blocks kèm: name, sid, path, system_file, configs.
+        """
+        blocks = self._model_index.find_blocks_recursive(block_type)
+        if not blocks:
+            return f"Không tìm thấy block nào có type '{block_type}' trong model."
+        return truncate_output(
+            f"Tìm thấy {len(blocks)} blocks type='{block_type}':\n"
+            + json.dumps(blocks, indent=2, ensure_ascii=False)
+        )
+
+    def query_config(self, block_type: str, config_name: str) -> str:
+        """Rút CHỈ 1 config cụ thể từ tất cả blocks of type — gọn, targeted.
+
+        Nếu config vắng trong block XML → tra bddefaults.xml để lấy default value.
+        KHÔNG bỏ sót — scan tất cả subsystem layers.
+
+        Dùng khi rule chỉ cần check 1 config trên 1 loại block.
+
+        Args:
+            block_type: VD: "Gain"
+            config_name: VD: "SaturateOnIntegerOverflow"
+
+        Returns:
+            JSON list: [{block_name, sid, path, value, source:"explicit"|"default"|"not_found"}]
+        """
+        results = self._model_index.query_config(block_type, config_name)
+        if not results:
+            return f"Không tìm thấy block nào type='{block_type}' trong model."
+        return (
+            f"Config '{config_name}' trên {len(results)} {block_type} blocks:\n"
+            + json.dumps(results, indent=2, ensure_ascii=False)
+        )
+
+    def trace_connections(self, block_sid: str) -> str:
+        """Trace signal connections (incoming/outgoing) cho 1 block by SID.
+
+        Tìm block trong toàn model, parse Line elements trong cùng system file.
+        Nếu endpoint là Inport/Outport → đó là cross-subsystem boundary.
+
+        Dùng khi rule cần kiểm tra kết nối giữa blocks, hoặc trace signal flow.
+
+        Args:
+            block_sid: SID của block cần trace. VD: "68"
+
+        Returns:
+            JSON: {block info, incoming connections, outgoing connections}
+        """
+        result = self._model_index.trace_connections(block_sid)
+        if "error" in result:
+            return result["error"]
+        return json.dumps(result, indent=2, ensure_ascii=False)
+
+    def auto_discover_blocks(self, block_keyword: str) -> str:
+        """Tự scan toàn bộ model → tìm TẤT CẢ blocks matching keyword.
+
+        Scan tất cả system_*.xml files, match BlockType và MaskType (case-insensitive).
+        Trả về dict keyed by SID kèm thông tin block, configs count, sample configs.
+
+        Dùng khi cần biết model chứa bao nhiêu blocks loại nào, ở đâu, trước khi viết code.
+        Khác find_blocks_recursive: tool này KHÔNG cần biết exact BlockType, chỉ cần keyword.
+
+        Args:
+            block_keyword: Keyword tìm kiếm (case-insensitive).
+                           VD: "Gain", "Inport", "TL_", "Sum"
+
+        Returns:
+            JSON dict keyed by SID: {name, block_type, mask_type, system_file, path, configs_count}
+        """
+        results = discover_blocks(self.model_dir, block_keyword)
+        if not results:
+            return f"Không tìm thấy block nào match keyword '{block_keyword}' trong model."
+        return truncate_output(
+            f"Tìm thấy {len(results)} blocks match '{block_keyword}':\n"
+            + json.dumps(results, indent=2, ensure_ascii=False)
+        )
+
+    def trace_cross_subsystem(
+        self, block_sid: str, direction: str = "both", max_depth: int = 5,
+    ) -> str:
+        """Trace signal connections XUYÊN subsystem boundaries.
+
+        Khi gặp Inport/Outport → tự follow vào/ra subsystem tương ứng.
+        Dùng khi rule cần trace signal flow xuyên qua nhiều levels.
+
+        Args:
+            block_sid: SID block bắt đầu trace. VD: "68"
+            direction: "incoming", "outgoing", hoặc "both" (mặc định "both")
+            max_depth: Số bước tối đa cross subsystem (mặc định 5, tránh loop vô hạn)
+
+        Returns:
+            JSON: {block info, trace steps kèm crossing info}
+        """
+        result = self._model_index.trace_connections_cross_subsystem(
+            block_sid, direction=direction, max_depth=max_depth,
+        )
+        if "error" in result:
+            return result["error"]
+        return truncate_output(json.dumps(result, indent=2, ensure_ascii=False))
+
+    def list_all_configs(self, block_sid: str) -> str:
+        """Liệt kê TẤT CẢ configs của 1 block: explicit từ XML + defaults từ bddefaults.xml.
+
+        Merge hai nguồn: defaults (cho BlockType) → override bởi giá trị explicit trong block.
+        Hữu ích khi cần biết block có bao nhiêu configs, config nào bị override, config nào dùng default.
+
+        Args:
+            block_sid: SID của block cần xem. VD: "68"
+
+        Returns:
+            JSON: {name, type, sid, configs: {config_name: {value, source}}, total_configs}
+        """
+        result = self._model_index.get_block_all_configs(block_sid)
+        if "error" in result:
+            return result["error"]
+        return truncate_output(json.dumps(result, indent=2, ensure_ascii=False))
+
+    def read_raw_block_config(self, block_sid: str) -> str:
+        """Đọc TOÀN BỘ config của 1 block — KHÔNG truncate, KHÔNG filter.
+
+        ⚠ Dùng khi ESCALATION: đã retry nhiều lần vẫn sai, cần xem raw data.
+        Output có thể RẤT LỚN — chỉ gọi khi thật sự cần.
+
+        Trả về: tất cả <P> configs, InstanceData, và raw XML.
+
+        Args:
+            block_sid: SID của block. VD: "68"
+
+        Returns:
+            JSON: {name, type, sid, raw_configs, instance_data, raw_xml}
+        """
+        result = self._model_index.read_raw_block_config(block_sid)
+        if "error" in result:
+            return result["error"]
+        return json.dumps(result, indent=2, ensure_ascii=False)

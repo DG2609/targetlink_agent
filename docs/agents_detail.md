@@ -8,37 +8,40 @@ Tất cả các Agent (trừ Agent 1) đều là **Agno Agents** được nạp 
 
 ## Tổng quan Pydantic Schemas
 
-Tất cả schemas nằm trong `schemas/models.py`:
+Schemas được tách thành nhiều file theo domain trong `schemas/`:
 
 ```python
-from pydantic import BaseModel
+# ── schemas/rule_schemas.py ──
 from enum import Enum
-from typing import Optional
+from pydantic import BaseModel, Field
 
-# ── Agent 0 Output ──
-class ParsedRule(BaseModel):
+class RuleInput(BaseModel):
     rule_id: str                # VD: "R001"
+    description: str            # Mô tả luật bằng ngôn ngữ tự nhiên
+
+class RuleCondition(str, Enum):
+    EQUAL = "equal"
+    NOT_EQUAL = "not_equal"
+    NOT_EMPTY = "not_empty"
+    CONTAINS = "contains"
+    IN_LIST = "in_list"
+
+class ParsedRule(BaseModel):           # Agent 0 Output
+    rule_id: str = ""           # Pipeline gán sau, LLM không biết rule_id
     block_keyword: str          # VD: "inport"
     rule_alias: str             # VD: "inport(targetlink)"
     config_name: str            # VD: "DataType"
-    condition: str              # VD: "not_equal"
+    condition: RuleCondition    # Enum — chặn giá trị không hợp lệ
     expected_value: str         # VD: "Inherit: auto"
 
-# ── Agent 1 Output ──
-class BlockMappingData(BaseModel):
+# ── schemas/block_schemas.py ──
+class BlockMappingData(BaseModel):     # Agent 1 Output
     name_ui: str                # VD: "Inport"
     name_xml: str               # VD: "TL_Inport"
-    config_map_analysis: str    # VD: "Config 'OutDataTypeStr' nằm ở <P Name='OutDataTypeStr'>. Mặc định 'Inherit: auto'. AUTOSAR mode thêm thẻ BusObject."
+    config_map_analysis: str    # LLM summary: XPath hints, mode, special notes
 
-# ── Agent 2 / 4 / 5 Output ──
-class GeneratedCode(BaseModel):
-    rule_id: str                # VD: "R001"
-    file_path: str              # VD: "generated_checks/check_rule_R001.py"
-    code_content: str           # Nội dung code Python
-    generation_note: str        # Agent 2: "first generation", Agent 4: "patched: fixed NoneType", Agent 5: "rewritten: new XPath"
-
-# ── Agent 3 Output ──
-class ValidationStatus(str, Enum):
+# ── schemas/validation_schemas.py ──
+class ValidationStatus(str, Enum):     # Agent 3 Output
     PASS = "PASS"                           # Code chạy OK + khớp expected
     CODE_ERROR = "CODE_ERROR"               # Code bị Syntax/Runtime Error
     WRONG_RESULT = "WRONG_RESULT"           # Code chạy OK nhưng kết quả sai
@@ -53,15 +56,28 @@ class ValidationResult(BaseModel):
     stderr: Optional[str] = None            # Error từ sandbox
     actual_result: Optional[dict] = None    # Kết quả thực tế
     expected_result: Optional[dict] = None  # Kết quả mong đợi
-    retry_count: int = 0                    # Số lần đã retry
+    failed_test_case: Optional[str] = None  # model_path của test case bị fail
+    test_cases_passed: int = 0
+    test_cases_total: int = 0
     code_file_path: str                     # Path tới file code hiện tại
 
-# ── Agent 5 Output ──
-class InspectionResult(BaseModel):
+# ── schemas/report_schemas.py ──
+class RuleReport(BaseModel):           # Kết quả 1 rule qua pipeline
     rule_id: str
-    findings: str               # VD: "Block TL_Inport nằm trong SubSystem/AUTOSAR_Wrapper, không ở root level"
-    hypothesis_tested: list[str]  # VD: ["BlockType đổi tên", "Config ẩn trong child node"]
-    new_code: GeneratedCode     # Code mới sau khi rewrite
+    status: ValidationStatus
+    match_expected: bool = False
+    actual: Optional[dict] = None
+    expected: Optional[dict] = None
+    generated_script: str = ""
+    needs_human_review: bool = False
+    pipeline_trace: list[dict] = []
+    error_detail: Optional[str] = None
+
+class FinalReport(BaseModel):          # Báo cáo tổng hợp
+    timestamp: str
+    model_file: str
+    total_rules: int
+    results: list[RuleReport]
 ```
 
 ---
@@ -149,14 +165,21 @@ Description: "{description}"
 - **Vai trò**: Dựa trên vị trí config do Agent 1 chỉ ra, Agent 2 tự khám phá XML tree (nhiều file XML) từng bước qua tools, verify XPath, rồi viết 1 file Python script hoàn chỉnh để test Rule đó.
 - **Tính chất**: Agent agentic (multi-step, tự chủ dùng tools) — KHÔNG có memory (mỗi lần chạy bắt đầu từ đầu).
 - **Skill (Tools) cấp phát**:
-  - `list_xml_files() -> str`: Liệt kê tất cả file XML trong model tree. **GỌI ĐẦU TIÊN**.
-  - `read_xml_structure(xml_file, xpath) -> str`: Đọc cấu trúc XML nodes trong 1 file XML cụ thể (READ-ONLY). Trả về tối đa 10 nodes.
-  - `test_xpath_query(xml_file, xpath) -> str`: Chạy thử XPath trên 1 file XML, trả về tối đa 20 kết quả.
-  - `deep_search_xml_text(xml_file, regex_pattern) -> str`: Regex search trong 1 file XML, tối đa 50 kết quả.
-  - `read_parent_nodes(xml_file, xpath) -> str`: Đọc ancestry chain từ root → target node.
-  - `write_python_file(filename, content) -> str`: Sinh ra script Python lưu vào thư mục `generated_checks/`. Trả về đường dẫn file.
+  - **Model-level (ưu tiên dùng trước)**:
+    - `build_model_hierarchy() -> str`: Xem cây subsystem Root → SubSystem → children. **GỌI ĐẦU TIÊN**.
+    - `find_blocks_recursive(block_type) -> str`: Tìm TẤT CẢ blocks of type xuyên mọi subsystem layers.
+    - `query_config(block_type, config_name) -> str`: Rút CHỈ 1 config cụ thể + default fallback.
+    - `trace_connections(block_sid) -> str`: Trace incoming/outgoing signal connections.
+  - **XML chi tiết (khi cần xem cấu trúc thô)**:
+    - `list_xml_files() -> str`: Liệt kê tất cả file XML trong model tree.
+    - `read_xml_structure(xml_file, xpath) -> str`: Đọc cấu trúc XML nodes (max 10 nodes).
+    - `test_xpath_query(xml_file, xpath) -> str`: Verify XPath trên 1 file XML (max 20 kết quả).
+    - `deep_search_xml_text(xml_file, regex_pattern) -> str`: Regex search trong 1 file XML (max 50 kết quả).
+    - `read_parent_nodes(xml_file, xpath) -> str`: Đọc ancestry chain từ root → target node.
+  - **Sinh code**:
+    - `write_python_file(filename, content) -> str`: Sinh script Python lưu vào `generated_checks/`.
 - **Input**: `ParsedRule` + `BlockMappingData` + đường dẫn tới thư mục model (XML tree)
-- **Output**: `GeneratedCode`
+- **Output**: Agents 2/4/5 ghi file trực tiếp qua tools (write_python_file, patch_python_file, rewrite_advanced_code). Pipeline verify file tồn tại sau mỗi agent.
 - **Lưu ý**: SLX sau khi unzip là MỘT TREE GỒM NHIỀU FILE XML. Agent 2 KHÔNG có tool đọc toàn bộ XML — phải explore từng phần.
 
 ### Prompt Template
@@ -176,58 +199,55 @@ BƯỚC LÀM VIỆC:
 
 YÊU CẦU CODE:
 - Import: `from lxml import etree` và `import json, sys, os`
-- Function `check_rule(model_dir: str) -> dict` nhận thư mục XML tree, trả về dict có keys: rule_id, total_blocks, pass_count, fail_count, details
-- Code tự parse đúng file XML cần thiết từ model_dir (VD: `os.path.join(model_dir, "simulink", "blockdiagram.xml")`)
+- Function `check_rule(model_dir: str) -> dict` nhận thư mục XML tree
+- Blocks nằm ở `simulink/systems/system_*.xml` — KHÔNG phải `blockdiagram.xml`
+- Dùng `glob("system_*.xml")` để scan tất cả subsystem files
+- Config vắng trong block XML = default value (tra từ `bddefaults.xml`)
+- Return dict keys: rule_id, total_blocks, pass_count, fail_count, details
 - Bọc tất cả XML access trong `try-except` để tránh crash khi node=None
 - Script có `if __name__ == "__main__"` để chạy standalone
-- Output print JSON ra stdout
+- stdout CHỈ có 1 `print(json.dumps(...))` duy nhất
 
 TUYỆT ĐỐI KHÔNG ghi/sửa file XML.
 ```
 
 ### Hành vi Agentic
 Agent 2 là agentic — tự chủ khám phá XML tree qua nhiều bước, KHÔNG có memory. Quy trình:
-1. Gọi `list_xml_files()` → Xem model tree có những file XML nào
-2. Gọi `read_xml_structure("simulink/blockdiagram.xml", ".//Block[@BlockType='{name_xml}']")` → Xem block thật trông như thế nào
-3. Gọi `test_xpath_query` thử truy cập config → Xác nhận XPath đúng
-4. Nếu XPath không match → Thử biến thể khác, search ở file XML khác
-5. Viết code dựa trên kết quả thực tế, không phải đoán
+1. Gọi `build_model_hierarchy()` → Xem cây subsystem, biết model structure
+2. Gọi `find_blocks_recursive("{name_xml}")` → Tìm tất cả blocks xuyên layers
+3. Gọi `query_config("{name_xml}", "{config_name}")` → Rút config targeted
+4. Gọi `test_xpath_query("simulink/systems/system_root.xml", ...)` → Verify XPath trước khi viết code
+5. Nếu XPath không match → Thử biến thể khác, search ở file XML khác
+6. Viết code dựa trên kết quả thực tế, không phải đoán
 
 ---
 
 ## 🕵️ Agent 3: Validator (Reviewer)
 *QA Tester — Máy kiểm thử tàn nhẫn.*
 
-- **Vai trò**: Chạy môi trường Sandbox để thực thi file code do Agent 2 tạo ra. Sau đó, so kết quả chạy với Test Case `expected_results.json` do User cung cấp.
-- **Skill (Tools) cấp phát**:
-  - `sandbox_execute_python(file_path, args) -> (stdout, stderr)`: Chạy file Python trong subprocess cách ly (timeout 30s). Trả về stdout và stderr.
-  - `compare_json_result(actual, expected) -> dict`: So khớp kết quả dictionary. Trả về `{match: bool, diff: {...}}`.
-- **Input**: `GeneratedCode` + `expected_results.json`
+- **Vai trò**: Chạy code trong subprocess sandbox, so kết quả với Test Case `expected_results.json`.
+- **Tính chất**: **Pure Python — KHÔNG dùng LLM**. Chạy subprocess trực tiếp, parse JSON stdout, so sánh 3 fields (total_blocks, pass_count, fail_count).
+- **Input**: code_file path + list[TestCase] + rule_id
 - **Output**: `ValidationResult`
 
-### Prompt Template
+### Quy trình Validate
 ```
-Bạn là QA Validator. Nhiệm vụ: chạy code và đánh giá kết quả.
-
-1. Dùng tool `sandbox_execute_python` chạy file "{file_path}" với argument là đường dẫn XML model
-2. Kiểm tra stderr:
-   - Nếu có lỗi → status = CODE_ERROR
-   - Nếu không → parse stdout thành JSON
-3. Dùng tool `compare_json_result` so sánh actual với expected:
-   - Khớp → status = PASS
-   - Không khớp → status = WRONG_RESULT
-
-Expected result cho rule {rule_id}: {expected_json}
-
-Trả về ValidationResult theo schema.
+Với mỗi test case:
+1. Extract .slx → thư mục XML tree (dùng slx_extractor)
+2. subprocess.run(code_file, model_dir) — timeout configurable
+3. Nếu exit_code != 0 → status = CODE_ERROR (trả về stderr)
+4. Nếu exit_code == 0 → json.loads(stdout), so sánh:
+   - total_blocks, pass_count, fail_count khớp expected → PASS
+   - Không khớp → WRONG_RESULT (trả về actual vs expected)
+5. Dừng ở test case đầu tiên FAIL
 ```
 
 ### Quyết định Routing
 ```
 ValidationResult.status == PASS           → Ghi report, chuyển rule tiếp theo
-ValidationResult.status == CODE_ERROR     → Chuyển cho Agent 4 (nếu retry < 3)
-ValidationResult.status == WRONG_RESULT   → Chuyển cho Agent 5 (nếu retry < 3)
-ValidationResult.retry_count >= 3         → Đánh dấu FAILED, chuyển rule tiếp theo
+ValidationResult.status == CODE_ERROR     → Chuyển cho Agent 4 (nếu chưa hết retry)
+ValidationResult.status == WRONG_RESULT   → Chuyển cho Agent 5 (nếu chưa hết retry)
+RetryManager hết quota (3 lần/agent)      → Đánh dấu FAILED, chuyển rule tiếp theo
 ```
 
 ---
@@ -241,7 +261,7 @@ ValidationResult.retry_count >= 3         → Đánh dấu FAILED, chuyển rule
   - `read_error_traceback(stderr) -> dict`: Phân tích chuỗi error, trả về `{error_type, error_message, line_number, context}`.
   - `patch_python_file(file_path, new_content) -> str`: Ghi đè file code với bản sửa mới.
 - **Input**: `ValidationResult` (status=CODE_ERROR)
-- **Output**: `GeneratedCode` (patched version)
+- **Output**: File code đã sửa (ghi qua `patch_python_file`)
 
 ### Prompt Template
 ```
@@ -264,7 +284,7 @@ BƯỚC LÀM VIỆC:
 4. Dùng tool `patch_python_file` ghi bản sửa
 
 CHÚ Ý: Chỉ sửa phần bị lỗi, giữ nguyên logic tổng thể.
-Đây là lần retry thứ {retry_count}/3.
+Đây là lần retry thứ {attempt}/3.
 ```
 
 ### Hành vi Agentic
@@ -283,15 +303,23 @@ Tối đa thử lại **3 vòng**. Nếu không được → trả `ValidationRe
 - **Vai trò**: Khi code KHÔNG BỊ BUG (chạy mượt) nhưng kết quả Check Rule (True/False) lại ra kết quả VÔ LÝ so với User Test Case (VD: Model đó đáng lẽ có 5 Inport blocks nhưng code đếm ra 0). Agent 5 phải đi tìm trong XML tree xem TargetLink giấu block đó ở Node nào.
 - **Tính chất**: Agent agentic (multi-step, tự chủ dùng tools) — KHÔNG có memory (mỗi lần chạy bắt đầu từ đầu).
 - **Skill (Tools) cấp phát**:
-  - `list_xml_files() -> str`: Liệt kê tất cả file XML trong model tree.
-  - `deep_search_xml_text(xml_file, regex_pattern) -> str`: Tìm kiếm Regex trong 1 file XML cụ thể. Trả về tối đa 50 matches kèm XPath path.
-  - `read_xml_structure(xml_file, xpath) -> str`: Đọc cấu trúc nodes tại XPath trong 1 file XML.
-  - `read_parent_nodes(xml_file, xpath) -> str`: Đọc ancestry chain từ root → target. Phát hiện SubSystem/Wrapper lồng nhau.
-  - `test_xpath_query(xml_file, xpath) -> str`: Verify XPath mới trước khi viết vào code.
-  - `rewrite_advanced_code(filename, new_code_content, reason) -> str`: Viết lại toàn bộ code mới khi logic cũ sai.
+  - **Model-level (ưu tiên dùng trước)**:
+    - `build_model_hierarchy() -> str`: Xem cây subsystem.
+    - `find_blocks_recursive(block_type) -> str`: Tìm tất cả blocks xuyên layers.
+    - `query_config(block_type, config_name) -> str`: Rút config + default fallback.
+    - `trace_connections(block_sid) -> str`: Trace signal connections.
+    - `read_raw_block_config(block_sid) -> str`: Đọc TOÀN BỘ raw config (**ESCALATION** — dùng khi retry cuối).
+  - **XML chi tiết**:
+    - `list_xml_files() -> str`: Liệt kê file XML.
+    - `deep_search_xml_text(xml_file, regex_pattern) -> str`: Regex search (max 50 matches).
+    - `read_xml_structure(xml_file, xpath) -> str`: Đọc cấu trúc nodes.
+    - `read_parent_nodes(xml_file, xpath) -> str`: Ancestry chain.
+    - `test_xpath_query(xml_file, xpath) -> str`: Verify XPath mới.
+  - **Sinh code**:
+    - `rewrite_advanced_code(filename, new_code_content, reason) -> str`: Viết lại toàn bộ code mới.
 - **Input**: `ValidationResult` (status=WRONG_RESULT) + `BlockMappingData`
-- **Output**: `InspectionResult`
-- **Lưu ý**: Agent 5 KHÔNG có tool đọc toàn bộ XML — phải search/explore từng phần. Có thể cần tìm thông tin ở file XML khác ngoài blockdiagram.xml.
+- **Output**: File code mới (ghi qua `rewrite_advanced_code`)
+- **Lưu ý**: Agent 5 KHÔNG có tool đọc toàn bộ XML — phải search/explore từng phần. Blocks nằm ở `simulink/systems/system_*.xml`.
 
 ### Prompt Template
 ```
@@ -321,24 +349,24 @@ CHIẾN LƯỢC ĐIỀU TRA:
    - Dùng `rewrite_advanced_code` viết lại XPath/logic chính xác hơn
 
 GHI LẠI: Mỗi giả thuyết đã test và kết quả vào field `hypothesis_tested`.
-Đây là lần retry thứ {retry_count}/3.
+Đây là lần retry thứ {attempt}/3.
 ```
 
 ### Hành vi Agentic
 Agent 5 là agentic — tự chủ điều tra qua nhiều bước, KHÔNG có memory. Quy trình tư duy:
 
 ```
-1. list_xml_files() → Xem model tree có những file XML nào
+1. build_model_hierarchy() → Xem cây subsystem, biết model structure
 2. Nhận diff: expected 5 blocks, actual 0
    → Giả thuyết: XPath sai, block có tên khác trong XML
 
-3. Search: deep_search_xml_text("simulink/blockdiagram.xml", "TL_Inport|Inport")
-   → Tìm thấy 5 nodes, nhưng BlockType = "SubSystem" chứ không phải "TL_Inport"
+3. find_blocks_recursive("TL_Inport") → Tìm thấy 5 blocks (MaskType match)
+   → Phát hiện blocks nằm trong SubSystem wrapper, có MaskType = "TL_Inport"
 
-4. Read parents: read_parent_nodes("simulink/blockdiagram.xml", ...) cho 1 node tìm thấy
-   → Phát hiện block nằm trong SubSystem wrapper, có MaskType = "TL_Inport"
+4. read_raw_block_config("{block_sid}") → Xem TOÀN BỘ raw config của 1 block
+   → Xác nhận cấu trúc XML chính xác
 
-5. Verify: test_xpath_query("simulink/blockdiagram.xml", ".//Block[@MaskType='TL_Inport']") → 5 kết quả ✓
+5. test_xpath_query("simulink/systems/system_root.xml", ".//Block[@MaskType='TL_Inport']") → 5 kết quả ✓
 
 6. rewrite_advanced_code → Trả code mới cho Agent 3
 ```
@@ -359,20 +387,27 @@ Agent 5 là agentic — tự chủ điều tra qua nhiều bước, KHÔNG có m
 
 | Agent | Tool | Chức năng | Read/Write |
 |-------|------|-----------|------------|
-| 0 | (LLM reasoning) | Phân tích text rule | Read-only |
-| 1 | `fuzzy_search_json` | Tìm block trong JSON | Read-only |
+| 0 | (LLM structured output) | Phân tích text rule → ParsedRule | Read-only |
+| 1 | `fuzzy_search_json` | Tìm block trong JSON (rapidfuzz, no LLM) | Read-only |
 | 1 | `read_dictionary` | Đọc description block | Read-only |
+| 2 | `build_model_hierarchy` | Xem cây subsystem của model | Read-only |
+| 2 | `find_blocks_recursive` | Tìm tất cả blocks of type xuyên layers | Read-only |
+| 2 | `query_config` | Rút 1 config cụ thể + default fallback | Read-only |
 | 2 | `list_xml_files` | Liệt kê file XML trong tree | Read-only |
 | 2 | `read_xml_structure` | Xem cấu trúc 1 file XML | Read-only |
 | 2 | `test_xpath_query` | Thử XPath trên 1 file XML | Read-only |
 | 2 | `deep_search_xml_text` | Regex search trong 1 file XML | Read-only |
 | 2 | `read_parent_nodes` | Đọc ancestry chain | Read-only |
 | 2 | `write_python_file` | Sinh file check script | Write (chỉ thư mục `generated_checks/`) |
-| 3 | `sandbox_execute_python` | Chạy code trong sandbox | Execute (isolated subprocess) |
-| 3 | `compare_json_result` | So sánh actual vs expected | Read-only |
+| 3 | (Pure Python) | subprocess.run + JSON compare | Execute (isolated subprocess) |
 | 4 | `read_python_file` | Đọc code bị lỗi | Read-only |
 | 4 | `read_error_traceback` | Phân tích error message | Read-only |
 | 4 | `patch_python_file` | Sửa file code | Write (chỉ thư mục `generated_checks/`) |
+| 5 | `build_model_hierarchy` | Xem cây subsystem của model | Read-only |
+| 5 | `find_blocks_recursive` | Tìm tất cả blocks of type xuyên layers | Read-only |
+| 5 | `query_config` | Rút 1 config cụ thể + default fallback | Read-only |
+| 5 | `trace_connections` | Trace incoming/outgoing connections | Read-only |
+| 5 | `read_raw_block_config` | Đọc TOÀN BỘ raw config (escalation) | Read-only |
 | 5 | `list_xml_files` | Liệt kê file XML trong tree | Read-only |
 | 5 | `deep_search_xml_text` | Regex search trong 1 file XML | Read-only |
 | 5 | `read_xml_structure` | Xem cấu trúc 1 file XML | Read-only |

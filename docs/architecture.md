@@ -88,10 +88,11 @@ agent = Agent(
 
 | Nhóm Skill | Tools | Agents sử dụng | Mô tả |
 |------------|-------|----------------|-------|
-| **Đọc XML** | `list_xml_files`, `read_xml_structure`, `test_xpath_query`, `deep_search_xml_text`, `read_parent_nodes` | Agent 2, 5 | Khám phá XML tree (nhiều file XML) từng phần — KHÔNG đọc toàn bộ (READ-ONLY) |
+| **Đọc XML (file-level)** | `list_xml_files`, `read_xml_structure`, `test_xpath_query`, `deep_search_xml_text`, `read_parent_nodes` | Agent 2, 5 | Khám phá XML tree (nhiều file XML) từng phần — KHÔNG đọc toàn bộ (READ-ONLY) |
+| **Đọc XML (model-level)** | `build_model_hierarchy`, `find_blocks_recursive`, `query_config`, `trace_connections`, `read_raw_block_config` | Agent 2, 5 | Cross-file, hierarchy-aware, default fallback |
 | **Tìm kiếm** | `fuzzy_search_json`, `read_dictionary` | Agent 1 | Tra cứu block trong từ điển JSON |
 | **Lập trình** | `write_python_file`, `read_python_file`, `patch_python_file`, `rewrite_advanced_code` | Agent 2, 4, 5 | Sinh/sửa code Python |
-| **Thực thi** | `sandbox_execute_python`, `compare_json_result` | Agent 3 | Chạy code sandbox + so sánh kết quả |
+| **Thực thi** | (Pure Python — subprocess.run + JSON compare) | Agent 3 | Chạy code sandbox + so sánh kết quả. KHÔNG dùng LLM. |
 
 > **Tham khảo**: Pattern tách Tool thành Toolkit class lấy cảm hứng từ `agentic/agent/tools/*.py` (LangGraph), chuyển đổi sang API của Agno.
 > Chi tiết implementation xem tại `docs/coding_guide.md`.
@@ -233,11 +234,11 @@ Các Agent không giao tiếp tự do mà truyền dữ liệu qua **Pydantic Da
 |-----------|----------------|----------------|
 | Agent 0 → Agent 1 | keyword, config name, condition | `ParsedRule` |
 | Agent 1 → Agent 2 | tên XML block, mô tả vị trí config | `BlockMappingData` |
-| Agent 2 → Agent 3 | đường dẫn file Python đã sinh | `GeneratedCode` |
+| Agent 2 → Agent 3 | file Python đã sinh (ghi qua tool) | Pipeline verify file tồn tại |
 | Agent 3 → Agent 4 | error traceback + đường dẫn file code | `ValidationResult` (status=CODE_ERROR) |
 | Agent 3 → Agent 5 | actual result + expected result + file code | `ValidationResult` (status=WRONG_RESULT) |
-| Agent 4 → Agent 3 | đường dẫn file code đã sửa | `GeneratedCode` (patched) |
-| Agent 5 → Agent 3 | đường dẫn file code mới + phân tích XML | `InspectionResult` |
+| Agent 4 → Agent 3 | file code đã sửa (ghi qua tool) | Pipeline re-validate |
+| Agent 5 → Agent 3 | file code mới (ghi qua tool) | Pipeline re-validate |
 
 **Nguyên tắc**: Output của Agent A luôn được Pydantic validate trước khi đưa vào Agent B. Nếu validation thất bại → Pipeline dừng ngay và báo lỗi schema.
 
