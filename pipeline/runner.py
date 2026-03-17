@@ -1,5 +1,5 @@
 """
-Pipeline chính: Điều phối 6 agents chạy song song theo từng rule.
+Pipeline chính: Điều phối 6-7 agents chạy song song theo từng rule.
 
 Features:
   - Parallel rule processing: asyncio.gather + Semaphore (configurable concurrency)
@@ -8,6 +8,7 @@ Features:
   - Extract .content từ RunResponse cho agents có response_model
   - Error history: agent biết lỗi trước đó, không lặp approach cũ
   - File verification: kiểm tra file tồn tại sau Agent 2
+  - Diff-based discovery: Agent 1.5 phân tích model diff → ground truth cho Agent 2/5
 """
 
 import asyncio
@@ -20,11 +21,15 @@ from lxml import etree
 
 from schemas.validation_schemas import TestCase, ValidationResult, ValidationStatus
 from schemas.block_schemas import BlockMappingData
+from schemas.diff_schemas import ConfigDiscovery, ModelDiff
 from schemas.report_schemas import FinalReport, PipelineStep, RuleReport
 from schemas.rule_schemas import ParsedRule, RuleInput
 
+from agno.agent import Agent
+
 from agents.agent0_rule_analyzer import create_agent0
 from agents.agent1_data_reader import create_agent1
+from agents.agent1_5_diff_analyzer import create_agent1_5
 from agents.agent2_code_generator import create_agent2
 from agents.agent3_validator import Validator, create_agent3
 from agents.agent4_bug_fixer import create_agent4
@@ -36,6 +41,7 @@ from pipeline.router import route_validation
 from pipeline.retry import RetryManager, classify_error
 
 from utils.slx_extractor import extract_slx
+from utils.model_differ import build_agent_context, format_diff_for_agent
 from utils.input_validator import validate_rule_input, has_blocking_errors
 from config import settings
 
@@ -47,8 +53,14 @@ async def run_pipeline(
     blocks_path: str,
     rules_path: str,
     expected_path: str,
+    diff_result: ModelDiff | None = None,
 ) -> FinalReport:
-    """Chạy toàn bộ pipeline cho tất cả rules — song song nếu concurrency > 1."""
+    """Chạy toàn bộ pipeline cho tất cả rules — song song nếu concurrency > 1.
+
+    Args:
+        diff_result: Kết quả diff từ model_differ (nếu user cung cấp --model-before).
+                     Được dùng bởi Agent 1.5 để phân tích config locations.
+    """
     pipeline_start = time.monotonic()
 
     # ── Chuẩn bị ──────────────────────────────────────────
@@ -61,11 +73,11 @@ async def run_pipeline(
     output_dir = str(settings.GENERATED_CHECKS_DIR)
 
     # ── Agent factory: mỗi concurrent task cần agent set riêng ──
-    def _make_agents():
+    def _make_agents() -> tuple[tuple[Agent, ...], Agent | None]:
         # Mỗi task tạo XmlToolkit riêng (loop detector riêng)
         # nhưng chia sẻ shared_xml_cache (tránh parse XML lại)
         xml_toolkit = XmlToolkit(model_dir=model_dir, shared_cache=shared_xml_cache)
-        return (
+        agents = (
             create_agent0(),
             create_agent1(blocks_path),
             create_agent2(xml_toolkit=xml_toolkit, output_dir=output_dir),
@@ -73,16 +85,25 @@ async def run_pipeline(
             create_agent4(),
             create_agent5(xml_toolkit=xml_toolkit, output_dir=output_dir),
         )
+        # Agent 1.5 chỉ tạo khi có diff_result VÀ có config changes thực sự
+        has_diff_changes = diff_result and diff_result.config_changes
+        agent1_5 = create_agent1_5() if has_diff_changes else None
+        return agents, agent1_5
 
     # ── Xử lý rules ──────────────────────────────────────
     concurrency = max(1, settings.MAX_CONCURRENT_RULES)
 
     if concurrency == 1:
-        # Tuần tự: dùng 1 bộ agents cho mọi rules (tiết kiệm tài nguyên)
-        rule_reports = await _run_sequential(rules, expected_list, _make_agents(), model_dir)
+        agents, agent1_5 = _make_agents()
+        rule_reports = await _run_sequential(
+            rules, expected_list, agents, model_dir,
+            diff_result=diff_result, agent1_5=agent1_5,
+        )
     else:
-        # Song song: mỗi task tạo agents riêng (tránh race condition)
-        rule_reports = await _run_parallel(rules, expected_list, _make_agents, concurrency, model_dir)
+        rule_reports = await _run_parallel(
+            rules, expected_list, _make_agents, concurrency, model_dir,
+            diff_result=diff_result,
+        )
 
     pipeline_duration = time.monotonic() - pipeline_start
     return FinalReport(
@@ -93,7 +114,10 @@ async def run_pipeline(
     )
 
 
-async def _run_sequential(rules, expected_list, agents, model_dir: str = "") -> list[RuleReport]:
+async def _run_sequential(
+    rules, expected_list, agents, model_dir: str = "",
+    diff_result: ModelDiff | None = None, agent1_5=None,
+) -> list[RuleReport]:
     """Chạy tuần tự — 1 bộ agents dùng lại cho mọi rules."""
     rule_reports = []
 
@@ -101,14 +125,20 @@ async def _run_sequential(rules, expected_list, agents, model_dir: str = "") -> 
         logger.info(f"[{rule.rule_id}] Bắt đầu xử lý: {rule.description[:60]}...")
         test_cases = _find_test_cases(expected_list, rule.rule_id)
 
-        report = await _process_rule(rule=rule, test_cases=test_cases, agents=agents, model_dir=model_dir)
+        report = await _process_rule(
+            rule=rule, test_cases=test_cases, agents=agents, model_dir=model_dir,
+            diff_result=diff_result, agent1_5=agent1_5,
+        )
         rule_reports.append(report)
         logger.info(f"[{rule.rule_id}] Kết quả: {report.status}")
 
     return rule_reports
 
 
-async def _run_parallel(rules, expected_list, make_agents_fn, concurrency: int, model_dir: str = "") -> list[RuleReport]:
+async def _run_parallel(
+    rules, expected_list, make_agents_fn, concurrency: int, model_dir: str = "",
+    diff_result: ModelDiff | None = None,
+) -> list[RuleReport]:
     """Chạy song song với semaphore giới hạn concurrency.
 
     Features:
@@ -127,8 +157,11 @@ async def _run_parallel(rules, expected_list, make_agents_fn, concurrency: int, 
             logger.info(f"[{rule.rule_id}] Bắt đầu xử lý (parallel): {rule.description[:60]}...")
             try:
                 # Mỗi task tạo agents riêng — agent Agno có internal state
-                agents = make_agents_fn()
-                report = await _process_rule(rule=rule, test_cases=test_cases, agents=agents, model_dir=model_dir)
+                agents, agent1_5 = make_agents_fn()
+                report = await _process_rule(
+                    rule=rule, test_cases=test_cases, agents=agents, model_dir=model_dir,
+                    diff_result=diff_result, agent1_5=agent1_5,
+                )
             except Exception as e:
                 # Per-rule isolation: catch unexpected errors, không crash toàn bộ gather
                 logger.error(f"[{rule.rule_id}] Unexpected error in parallel task: {e}")
@@ -150,8 +183,11 @@ async def _run_parallel(rules, expected_list, make_agents_fn, concurrency: int, 
     return list(await asyncio.gather(*tasks))
 
 
-async def _process_rule(rule, test_cases: list[TestCase], agents, model_dir: str = "") -> RuleReport:
-    """Xử lý 1 rule qua pipeline 6 agents với retry logic + timing."""
+async def _process_rule(
+    rule, test_cases: list[TestCase], agents, model_dir: str = "",
+    diff_result: ModelDiff | None = None, agent1_5=None,
+) -> RuleReport:
+    """Xử lý 1 rule qua pipeline 6-7 agents với retry logic + timing."""
     agent0, agent1, agent2, agent3, agent4, agent5 = agents
     retry = RetryManager(
         max_retries_agent4=settings.MAX_RETRY_AGENT4,
@@ -159,6 +195,7 @@ async def _process_rule(rule, test_cases: list[TestCase], agents, model_dir: str
     )
     steps: list[PipelineStep] = []
     rule_start = time.monotonic()
+    config_discovery: ConfigDiscovery | None = None
 
     try:
         # ── Agent 0: Parse rule text ──────────────────────
@@ -187,9 +224,37 @@ async def _process_rule(rule, test_cases: list[TestCase], agents, model_dir: str
         steps.append(_make_step("Agent 1 (Data Reader)", t1, output_summary=f"name_xml={block_data.name_xml}"))
         logger.debug(f"[{rule.rule_id}] Agent 1: name_xml={block_data.name_xml}")
 
+        # ── Agent 1.5: Diff Analyzer (chỉ khi có diff_result) ──
+        if diff_result and agent1_5 and diff_result.config_changes:
+            # Build raw structured context — JSON + defaults dictionary
+            # (không format đẹp — LLM cần raw data để hiểu logic chính xác)
+            diff_context = build_agent_context(
+                diff_result,
+                block_type=block_data.name_xml,
+                config_name=parsed_rule.config_name,
+                model_dir=model_dir,
+            )
+            t1_5 = time.monotonic()
+            logger.info(f"[{rule.rule_id}] Agent 1.5: phân tích diff ({len(diff_result.config_changes)} changes)")
+            response1_5 = await agent1_5.arun(
+                f"block_type: {block_data.name_xml}\n"
+                f"config_name: {parsed_rule.config_name}\n"
+                f"block_mapping: name_ui={block_data.name_ui}, config_map_analysis={block_data.config_map_analysis}\n\n"
+                f"{diff_context}"
+            )
+            config_discovery = _extract_content(response1_5, "Agent 1.5", ConfigDiscovery)
+            steps.append(_make_step(
+                "Agent 1.5 (Diff Analyzer)", t1_5,
+                output_summary=f"location={config_discovery.location_type}, xpath={config_discovery.xpath_pattern}",
+            ))
+            logger.debug(
+                f"[{rule.rule_id}] Agent 1.5: location_type={config_discovery.location_type}, "
+                f"xpath_pattern={config_discovery.xpath_pattern}",
+            )
+
         # ── Agent 2: Generate check code ─────────────────
         t2 = time.monotonic()
-        await agent2.arun(
+        agent2_context = (
             f"rule_id: {rule.rule_id}\n"
             f"block: name_xml={block_data.name_xml}, name_ui={block_data.name_ui}\n"
             f"config_name: {parsed_rule.config_name}\n"
@@ -198,6 +263,19 @@ async def _process_rule(rule, test_cases: list[TestCase], agents, model_dir: str
             f"config_map_analysis: {block_data.config_map_analysis}\n"
             f"output_filename: check_rule_{rule.rule_id}.py"
         )
+        if config_discovery:
+            agent2_context += (
+                f"\n\nCONFIG DISCOVERY (ground truth from model diff — Agent 1.5):\n"
+                f"  block_type: {config_discovery.block_type}\n"
+                f"  mask_type: {config_discovery.mask_type}\n"
+                f"  config_name: {config_discovery.config_name}\n"
+                f"  location_type: {config_discovery.location_type}\n"
+                f"  xpath_pattern: {config_discovery.xpath_pattern}\n"
+                f"  default_value: {config_discovery.default_value}\n"
+                f"  value_format: {config_discovery.value_format}\n"
+                f"  notes: {config_discovery.notes}"
+            )
+        await agent2.arun(agent2_context)
         code_file = str(settings.GENERATED_CHECKS_DIR / f"check_rule_{rule.rule_id}.py")
         steps.append(_make_step("Agent 2 (Code Generator)", t2, output_summary=f"file={code_file}"))
         logger.debug(f"[{rule.rule_id}] Agent 2: generated {code_file}")
@@ -229,6 +307,7 @@ async def _process_rule(rule, test_cases: list[TestCase], agents, model_dir: str
                 max_retries=retry.max_retries,
                 error_history=retry.get_error_history(),
                 retry_manager=retry,
+                config_discovery=config_discovery,
             )
 
             if next_agent == "agent4":

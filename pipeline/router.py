@@ -7,6 +7,7 @@ Adaptive routing: dùng error classification để chọn agent phù hợp, esca
 
 from schemas.validation_schemas import ValidationResult, ValidationStatus
 from schemas.block_schemas import BlockMappingData
+from schemas.diff_schemas import ConfigDiscovery
 from pipeline.retry import classify_error, RetryManager
 
 
@@ -17,6 +18,7 @@ def route_validation(
     max_retries: dict[str, int] | None = None,
     error_history: list[str] | None = None,
     retry_manager: RetryManager | None = None,
+    config_discovery: ConfigDiscovery | None = None,
 ) -> tuple[str, str]:
     """Quyết định agent tiếp theo.
 
@@ -27,6 +29,7 @@ def route_validation(
         max_retries: Giới hạn retry cho mỗi agent (dùng cho escalation logic).
         error_history: Danh sách lỗi từ các lần retry trước.
         retry_manager: RetryManager instance (cho adaptive escalation).
+        config_discovery: Ground truth từ Agent 1.5 (nếu có).
 
     Returns:
         (next_agent, context_message)
@@ -65,7 +68,7 @@ def route_validation(
                 )
                 for i, err in enumerate(error_history, 1):
                     context += f"  {i}. {err}\n"
-            return ("agent5", context)
+            return ("agent5", _append_discovery_context(context, config_discovery))
 
         attempt = agent4_count + 1
         context = (
@@ -114,6 +117,19 @@ def route_validation(
             )
             for i, err in enumerate(error_history, 1):
                 context += f"  {i}. {err}\n"
-        return ("agent5", context)
+        return ("agent5", _append_discovery_context(context, config_discovery))
 
     return ("failed", f"Trạng thái không xử lý được: {result.status}")
+
+
+def _append_discovery_context(context: str, config_discovery: ConfigDiscovery | None) -> str:
+    """Append ConfigDiscovery ground truth vào context cho Agent 5."""
+    if not config_discovery:
+        return context
+    return context + (
+        f"\n\nCONFIG DISCOVERY (ground truth from model diff — Agent 1.5):\n"
+        f"  location_type: {config_discovery.location_type}\n"
+        f"  xpath_pattern: {config_discovery.xpath_pattern}\n"
+        f"  default_value: {config_discovery.default_value}\n"
+        f"  notes: {config_discovery.notes}"
+    )

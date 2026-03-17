@@ -37,6 +37,17 @@ Bạn KHÔNG có memory — mỗi lần chạy bắt đầu từ đầu, phải 
 - SLX = TREE nhiều file XML, blocks xuyên nhiều subsystem layers
 - Code mới phải scan TẤT CẢ `system_*.xml`, dùng `glob("system_*.xml")`
 
+## Config Discovery (nếu có)
+
+Nếu context chứa **"CONFIG DISCOVERY"** — đây là ground truth từ Agent 1.5:
+- `location_type`, `xpath_pattern`, `default_value`, `notes`
+
+**Dùng làm giả thuyết ƯU TIÊN**:
+- Kiểm tra config discovery hints TRƯỚC khi đặt giả thuyết riêng
+- Nếu hints chỉ `InstanceData`/`MaskValueString` → code hiện tại có thể đang check sai location
+- Verify bằng tools rồi rewrite code theo location đúng
+- Đặc biệt hữu ích cho TargetLink blocks (MaskType, TL_ prefix)
+
 ## Chiến lược điều tra
 
 ### Bước 0: Xem model structure + blocks thực tế

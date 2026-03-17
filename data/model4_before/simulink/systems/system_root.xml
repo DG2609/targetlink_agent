@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="utf-8"?>
+<System>
+  <P Name="Location">[475, 184, 1699, 905]</P>
+  <P Name="Open">on</P>
+  <P Name="SetExecutionDomain">off</P>
+  <P Name="ExecutionDomainType">Deduce</P>
+  <P Name="ReportName">simulink-default.rpt</P>
+  <P Name="SIDHighWatermark">74</P>
+  <P Name="SimulinkSubDomain">Simulink</P>
+  <Block BlockType="Inport" Name="Power" SID="1">
+    <P Name="Position">[375, 228, 405, 242]</P>
+    <P Name="ZOrder">1</P>
+    <P Name="SampleTime">1/Fs</P>
+  </Block>
+  <Block BlockType="Abs" Name="Abs" SID="62">
+    <P Name="Position">[870, 300, 900, 330]</P>
+    <P Name="ZOrder">12</P>
+    <P Name="SaturateOnIntegerOverflow">on</P>
+  </Block>
+  <Block BlockType="Abs" Name="Abs1" SID="63">
+    <P Name="Position">[870, 220, 900, 250]</P>
+    <P Name="ZOrder">13</P>
+    <P Name="SaturateOnIntegerOverflow">off</P>
+  </Block>
+  <Block BlockType="Buffer" Name="Buffer" SID="60">
+    <P Name="Position">[765, 289, 815, 341]</P>
+    <P Name="ZOrder">10</P>
+    <P Name="N">12</P>
+    <P Name="OutputFrames">off</P>
+  </Block>
+  <Block BlockType="Buffer" Name="Buffer1" SID="61">
+    <P Name="Position">[765, 209, 815, 261]</P>
+    <P Name="ZOrder">11</P>
+    <P Name="N">12</P>
+    <P Name="OutputFrames">off</P>
+  </Block>
+  <Block BlockType="Reference" Name="Daylight Threshold" SID="69">
+    <P Name="Ports">[1, 1]</P>
+    <P Name="Position">[1075, 205, 1105, 235]</P>
+    <P Name="ZOrder">19</P>
+    <P Name="LibraryVersion">1.465</P>
+    <P Name="SourceBlock">simulink/Logic and Bit
+Operations/Compare
+To Constant</P>
+    <P Name="SourceType">Compare To Constant</P>
+    <P Name="SourceProductBaseCode">SL</P>
+    <InstanceData>
+      <P Name="RTWMemSecFuncInitTerm">Inherit from model</P>
+      <P Name="RTWMemSecFuncExecute">Inherit from model</P>
+      <P Name="RTWMemSecDataConstants">Inherit from model</P>
+      <P Name="RTWMemSecDataInternal">Inherit from model</P>
+      <P Name="RTWMemSecDataParameters">Inherit from model</P>
+      <P Name="ContentPreviewEnabled">on</P>
+      <P Name="relop">&gt;=</P>
+      <P Name="const">5</P>
+      <P Name="OutDataTypeStr">boolean</P>
+      <P Name="ZeroCross">on</P>
+    </InstanceData>
+  </Block>
+  <Block BlockType="Delay" Name="Delay1" SID="59">
+    <P Name="Ports">[1, 1]</P>
+    <P Name="Position">[675, 298, 710, 332]</P>
+    <P Name="ZOrder">9</P>
+    <P Name="InputPortMap">u0</P>
+    <Port>
+      <P Name="PortNumber">1</P>
+      <P Name="Name">HPF Power</P>
+    </Port>
+  </Block>
+  <Block BlockType="Product" Name="Divide" SID="66">
+    <P Name="Ports">[2, 1]</P>
+    <P Name="Position">[1035, 262, 1065, 293]</P>
+    <P Name="ZOrder">16</P>
+    <P Name="Inputs">*/</P>
+  </Block>
+  <Block BlockType="Gain" Name="Gain" SID="68">
+    <P Name="Position">[1300, 265, 1330, 295]</P>
+    <P Name="ZOrder">18</P>
+    <P Name="Gain">486</P>
+    <P Name="SaturateOnIntegerOverflow">on</P>
+    <Port>
+      <P Name="PortNumber">1</P>
+      <P Name="Name">Sunny</P>
+    </Port>
+  </Block>
+  <Block BlockType="SubSystem" Name="Highpass Filter" SID="32">
+    <P Name="Tag">FilterWizardSubSystem</P>
+    <P Name="Ports">[1, 1]</P>
+    <P Name="Position">[545, 295, 620, 335]</P>
+    <P Name="ZOrder">7</P>
+    <P Name="UserDataPersistent">on</P>
+    <P Name="UserData" Ref="bdmxdata:UserData_32"/>
+    <P Name="ErrorFcn">dspFilterRealizedInBasicElemsAlgLoopErrFcnCallback</P>
+    <P Name="RequestExecContextInheritance">off</P>
+    <P Name="ContentPreviewEnabled">on</P>
+    <System Ref="system_32"/>
+  </Block>
+  <Block BlockType="Logic" Name="Logical&#xA;Operator" SID="70">
+    <P Name="Ports">[2, 1]</P>
+    <P Name="Position">[1195, 257, 1225, 288]</P>
+    <P Name="ZOrder">20</P>
+    <P Name="AllPortsSameDT">off</P>
+    <P Name="OutDataTypeStr">boolean</P>
+  </Block>
+  <Block BlockType="SubSystem" Name="Lowpass Filter" SID="6">
+    <P Name="Tag">FilterWizardSubSystem</P>
+    <P Name="Ports">[1, 1]</P>
+    <P Name="Position">[545, 215, 620, 255]</P>
+    <P Name="ZOrder">6</P>
+    <P Name="UserDataPersistent">on</P>
+    <P Name="UserData" Ref="bdmxdata:UserData_6"/>
+    <P Name="ErrorFcn">dspFilterRealizedInBasicElemsAlgLoopErrFcnCallback</P>
+    <P Name="RequestExecContextInheritance">off</P>
+    <P Name="ContentPreviewEnabled">on</P>
+    <Port>
+      <P Name="PortNumber">1</P>
+      <P Name="Name">LPF Power</P>
+    </Port>
+    <System Ref="system_6"/>
+  </Block>
+  <Block BlockType="Sum" Name="Sum of&#xA;Elements" SID="64">
+    <P Name="Ports">[1, 1]</P>
+    <P Name="Position">[955, 300, 985, 330]</P>
+    <P Name="ZOrder">14</P>
+    <P Name="IconShape">rectangular</P>
+    <P Name="Inputs">+</P>
+  </Block>
+  <Block BlockType="Sum" Name="Sum of&#xA;Elements1" SID="65">
+    <P Name="Ports">[1, 1]</P>
+    <P Name="Position">[955, 220, 985, 250]</P>
+    <P Name="ZOrder">15</P>
+    <P Name="IconShape">rectangular</P>
+    <P Name="Inputs">+</P>
+  </Block>
+  <Block BlockType="Reference" Name="Sunny Threshold" SID="67">
+    <P Name="Ports">[1, 1]</P>
+    <P Name="Position">[1110, 265, 1140, 295]</P>
+    <P Name="ZOrder">17</P>
+    <P Name="LibraryVersion">1.465</P>
+    <P Name="SourceBlock">simulink/Logic and Bit
+Operations/Compare
+To Constant</P>
+    <P Name="SourceType">Compare To Constant</P>
+    <P Name="SourceProductBaseCode">SL</P>
+    <InstanceData>
+      <P Name="RTWMemSecFuncInitTerm">Inherit from model</P>
+      <P Name="RTWMemSecFuncExecute">Inherit from model</P>
+      <P Name="RTWMemSecDataConstants">Inherit from model</P>
+      <P Name="RTWMemSecDataInternal">Inherit from model</P>
+      <P Name="RTWMemSecDataParameters">Inherit from model</P>
+      <P Name="ContentPreviewEnabled">on</P>
+      <P Name="relop">&gt;=</P>
+      <P Name="const">22</P>
+      <P Name="OutDataTypeStr">boolean</P>
+      <P Name="ZeroCross">on</P>
+    </InstanceData>
+  </Block>
+  <Block BlockType="Outport" Name="Out1" SID="71">
+    <P Name="Position">[1405, 273, 1435, 287]</P>
+    <P Name="ZOrder">21</P>
+  </Block>
+</System>

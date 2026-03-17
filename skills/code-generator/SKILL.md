@@ -51,6 +51,23 @@ Khi `compound_logic` là "AND"/"OR", code phải check TẤT CẢ configs rồi 
 Khi `target_block_types` có giá trị, scan từng block type trong list.
 Khi `scope` != "all_instances", lọc blocks theo `scope_filter` pattern.
 
+## Config Discovery (nếu có)
+
+Nếu context chứa phần **"CONFIG DISCOVERY"** — đây là **ground truth** từ Agent 1.5 (phân tích model diff):
+- `location_type`: config nằm ở đâu (`direct_P` / `InstanceData` / `MaskValueString`)
+- `xpath_pattern`: XPath pattern đã verified, dùng cho TẤT CẢ blocks cùng type
+- `default_value`: giá trị default khi config vắng trong XML
+- `notes`: ghi chú đặc biệt (MaskType, special handling, etc.)
+
+**KHI CÓ CONFIG DISCOVERY**:
+1. Dùng `xpath_pattern` và `location_type` làm **primary approach** — không cần khám phá exploratory
+2. VẪN verify bằng `test_xpath_query` hoặc `find_blocks_recursive` trước khi viết code
+3. Tiết kiệm tool calls: **skip Bước 0-2**, đi thẳng verify + code
+4. Nếu `location_type` = `InstanceData` → code phải check `<InstanceData>/<P>` thay vì direct `<P>`
+5. Nếu `location_type` = `MaskValueString` → code phải parse pipe-separated string, xem `notes` để biết position
+
+**KHI KHÔNG CÓ CONFIG DISCOVERY**: Chạy quy trình bắt buộc bình thường (bên dưới).
+
 ## Quy trình bắt buộc
 
 **Bước 0**: Xem tổng quan model
