@@ -20,7 +20,7 @@ _DANGEROUS_PATTERNS = [
     (r'\beval\s*\(', "eval() — không được dùng eval trong generated code"),
     (r'\bexec\s*\(', "exec() — không được dùng exec trong generated code"),
     (r'\b__import__\s*\(', "__import__() — không được dùng dynamic import"),
-    (r'\bopen\s*\(.+["\']w', "open() write mode — code chỉ được READ model"),
+    (r'\bopen\s*\(.+["\'][wa]', "open() write/append mode — code chỉ được READ model"),
 ]
 
 

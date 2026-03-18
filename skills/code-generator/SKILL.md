@@ -8,7 +8,8 @@ description: Đọc cấu trúc XML tree của model TargetLink, verify XPath, r
 Sinh Python script kiểm tra rule dựa trên cấu trúc XML thực tế.
 
 Bạn là agent agentic — tự chủ khám phá XML tree qua tools, lặp nhiều bước cho đến khi hiểu đúng cấu trúc.
-Bạn KHÔNG có memory — mỗi lần chạy bắt đầu từ đầu, phải tự khám phá lại.
+Bạn KHÔNG có memory riêng, nhưng có thể nhận:
+- **Cross-rule cache**: nếu context chứa "KNOWN FROM PREVIOUS RULES" → model hierarchy/blocks đã verified, SKIP explore lại
 
 ## Tools được cấp
 
@@ -189,6 +190,14 @@ if __name__ == "__main__":
     result = check_rule(sys.argv[1])
     print(json.dumps(result, indent=2))
 ```
+
+## TargetLink / MaskType blocks
+
+Nhiều blocks trong TargetLink model dùng **MaskType** thay vì **BlockType**:
+- VD: `BlockType="SubSystem"` + `MaskType="TL_Inport"` → đây là TL_Inport, KHÔNG phải SubSystem
+- Nếu `find_blocks_recursive` trả về ít blocks → thử `auto_discover_blocks` với keyword rộng hơn
+- Config của MaskType blocks thường nằm trong `InstanceData` hoặc `MaskValueString`, KHÔNG phải direct `<P>`
+- Code sinh ra phải handle cả 2 trường hợp: direct `<P>` và nested `InstanceData/<P>`
 
 ## Quy tắc (Agent 3 kiểm tra tự động)
 

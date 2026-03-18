@@ -548,10 +548,10 @@ class XmlToolkit(Toolkit):
         return truncate_output(json.dumps(result, indent=2, ensure_ascii=False))
 
     def read_raw_block_config(self, block_sid: str) -> str:
-        """Đọc TOÀN BỘ config của 1 block — KHÔNG truncate, KHÔNG filter.
+        """Đọc TOÀN BỘ config của 1 block — dùng khi ESCALATION.
 
-        ⚠ Dùng khi ESCALATION: đã retry nhiều lần vẫn sai, cần xem raw data.
-        Output có thể RẤT LỚN — chỉ gọi khi thật sự cần.
+        ⚠ Dùng khi đã retry nhiều lần vẫn sai, cần xem raw data.
+        Output truncated tại 100KB / 2000 dòng (vẫn rất lớn, đủ cho hầu hết blocks).
 
         Trả về: tất cả <P> configs, InstanceData, và raw XML.
 
@@ -564,4 +564,5 @@ class XmlToolkit(Toolkit):
         result = self._model_index.read_raw_block_config(block_sid)
         if "error" in result:
             return result["error"]
-        return json.dumps(result, indent=2, ensure_ascii=False)
+        raw_json = json.dumps(result, indent=2, ensure_ascii=False)
+        return truncate_output(raw_json, max_chars=100_000, max_lines=2000)

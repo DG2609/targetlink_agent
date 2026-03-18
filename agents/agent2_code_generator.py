@@ -4,12 +4,11 @@ Skill: skills/code-generator/SKILL.md
 """
 
 from agno.agent import Agent
-from agno.models.google import Gemini
 
-from config import settings
 from tools.xml_tools import XmlToolkit
 from tools.code_tools import CodeToolkit
 from utils.skill_loader import load_skill
+from utils.model_factory import create_model
 
 
 def create_agent2(xml_toolkit: XmlToolkit, output_dir: str) -> Agent:
@@ -22,12 +21,7 @@ def create_agent2(xml_toolkit: XmlToolkit, output_dir: str) -> Agent:
     return Agent(
         name="Code Generator",
         role="Senior Python Developer viết rule checking scripts",
-        model=Gemini(
-            id=settings.GEMINI_MODEL,
-            vertexai=True,
-            project_id=settings.GOOGLE_CLOUD_PROJECT,
-            location=settings.GOOGLE_CLOUD_LOCATION,
-        ),
+        model=create_model(),
         tools=[
             xml_toolkit,
             CodeToolkit(output_dir=output_dir),
@@ -35,5 +29,6 @@ def create_agent2(xml_toolkit: XmlToolkit, output_dir: str) -> Agent:
         instructions=load_skill("code-generator"),
         markdown=True,
         debug_mode=True,
+        # 15 calls: ~5 explore (hierarchy, blocks, config, xpath, discover) + ~2 verify + 1 write + buffer
         tool_call_limit=15,
     )

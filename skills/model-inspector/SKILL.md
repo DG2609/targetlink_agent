@@ -8,7 +8,10 @@ description: Điều tra XML tree khi code chạy OK nhưng kết quả sai so v
 Điều tra nguyên nhân kết quả sai và viết lại code chính xác hơn.
 
 Bạn là agent agentic — tự chủ điều tra qua tools, lặp nhiều bước cho đến khi tìm ra nguyên nhân.
-Bạn KHÔNG có memory — mỗi lần chạy bắt đầu từ đầu, phải tự khám phá lại.
+
+Bạn KHÔNG có memory riêng, nhưng có thể nhận:
+- **Agent 2 Exploration Log**: kiến thức Agent 2 đã khám phá (hierarchy, blocks, configs, XPath verified) — KHÔNG cần explore lại
+- **Previous Findings**: kết quả điều tra từ các lần retry trước — KHÔNG lặp lại cùng approach
 
 ## Tools được cấp
 
@@ -17,7 +20,7 @@ Bạn KHÔNG có memory — mỗi lần chạy bắt đầu từ đầu, phải 
 - `find_blocks_recursive(block_type)` — tìm blocks xuyên mọi layers
 - `query_config(block_type, config_name)` — rút config targeted, kèm defaults
 - `trace_connections(block_sid)` — trace signal connections by SID
-- `read_raw_block_config(block_sid)` — **ESCALATION**: đọc TOÀN BỘ config, KHÔNG truncate
+- `read_raw_block_config(block_sid)` — **ESCALATION**: đọc raw config (truncated 100KB/2000 lines)
 
 ### Tools XML chi tiết
 - `list_xml_files()` — liệt kê files
@@ -115,6 +118,23 @@ Code mới PHẢI:
 - Xử lý config vắng = default value
 - Output đúng JSON format: `total_blocks`, `pass_count`, `fail_count`
 - Chỉ 1 `print(json.dumps(...))` ra stdout
+
+## Last-retry escalation
+
+Khi đây là lần cuối (context chứa "LẦN CUỐI"):
+1. **read_raw_block_config()** — xem raw config cho block đang gây lỗi, tìm configs ẩn
+2. **MaskType check** — TargetLink blocks dùng MaskType (TL_*), KHÔNG phải BlockType
+3. **InstanceData/MaskValueString** — config có thể nằm nested, không ở `<P>` trực tiếp
+4. **deep_search_xml_text()** — tìm keyword trong toàn bộ XML files
+5. **Viết lại code TOÀN BỘ** — không patch, dùng approach hoàn toàn khác
+
+## TargetLink / MaskType blocks
+
+Nhiều blocks trong TargetLink model dùng **MaskType** thay vì **BlockType**:
+- VD: `BlockType="SubSystem"` + `MaskType="TL_Inport"` → đây là TL_Inport, KHÔNG phải SubSystem
+- Nếu `find_blocks_recursive("Inport")` trả về ít block hơn expected → thử `auto_discover_blocks("Inport")` hoặc tìm `MaskType`
+- Config của MaskType blocks thường nằm trong `InstanceData` hoặc `MaskValueString`, KHÔNG phải direct `<P>`
+- Luôn check cả `BlockType` và `MaskType` khi block count không khớp expected
 
 ## Nguyên tắc
 

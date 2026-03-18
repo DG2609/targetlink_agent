@@ -8,11 +8,10 @@ Chỉ chạy khi user cung cấp --model-before.
 """
 
 from agno.agent import Agent
-from agno.models.google import Gemini
 
-from config import settings
 from schemas.diff_schemas import ConfigDiscovery
 from utils.skill_loader import load_skill
+from utils.model_factory import create_model
 
 
 def create_agent1_5() -> Agent:
@@ -24,12 +23,7 @@ def create_agent1_5() -> Agent:
     return Agent(
         name="Diff Analyzer",
         role="Chuyên gia phân tích model diff → xác định config locations chính xác",
-        model=Gemini(
-            id=settings.GEMINI_MODEL,
-            vertexai=True,
-            project_id=settings.GOOGLE_CLOUD_PROJECT,
-            location=settings.GOOGLE_CLOUD_LOCATION,
-        ),
+        model=create_model(small=True),
         instructions=load_skill("diff-analyzer"),
         output_schema=ConfigDiscovery,
         structured_outputs=True,

@@ -3,8 +3,9 @@ Cấu hình hệ thống — đọc từ .env qua Pydantic BaseSettings.
 Tất cả secrets và env-specific config phải khai báo ở đây, KHÔNG hardcode trong code.
 """
 
+from typing import Literal
 from pathlib import Path
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,14 +16,22 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # ── Google Cloud Vertex AI ──────────────────────────────
-    GOOGLE_CLOUD_PROJECT: str
+    # ── LLM Provider ────────────────────────────────────────
+    # "gemini" = Google Vertex AI (cloud), "ollama" = local Ollama
+    LLM_PROVIDER: Literal["gemini", "ollama"] = "gemini"
+
+    # ── Google Cloud Vertex AI (khi LLM_PROVIDER=gemini) ────
+    GOOGLE_CLOUD_PROJECT: str = ""
     GOOGLE_CLOUD_LOCATION: str = "us-central1"
     GOOGLE_GENAI_USE_VERTEXAI: bool = True
     GEMINI_MODEL: str = "gemini-2.0-flash-001"
-
-    # Service Account (để trống nếu dùng ADC)
     GOOGLE_APPLICATION_CREDENTIALS: str = ""
+
+    # ── Ollama (khi LLM_PROVIDER=ollama) ────────────────────
+    OLLAMA_MODEL: str = "qwen2.5:14b"
+    OLLAMA_HOST: str = "http://localhost:11434"
+    # Model nhỏ hơn cho agents đơn giản (Agent 0, 1, 1.5) — tiết kiệm RAM
+    OLLAMA_SMALL_MODEL: str = ""  # Rỗng = dùng OLLAMA_MODEL cho tất cả
 
     # ── Paths ───────────────────────────────────────────────
     BASE_DIR: Path = Path(__file__).parent
@@ -36,12 +45,15 @@ class Settings(BaseSettings):
     SANDBOX_TIMEOUT: int = 30  # seconds
     MAX_CONCURRENT_RULES: int = 3  # Số rules xử lý song song (1 = tuần tự)
 
-    @field_validator("GOOGLE_CLOUD_PROJECT")
-    @classmethod
-    def project_must_not_be_empty(cls, v: str) -> str:
-        if not v or not v.strip():
-            raise ValueError("GOOGLE_CLOUD_PROJECT không được để trống trong .env")
-        return v.strip()
+    @model_validator(mode="after")
+    def validate_provider_config(self):
+        if self.LLM_PROVIDER == "gemini":
+            if not self.GOOGLE_CLOUD_PROJECT or not self.GOOGLE_CLOUD_PROJECT.strip():
+                raise ValueError(
+                    "LLM_PROVIDER=gemini nhưng GOOGLE_CLOUD_PROJECT trống. "
+                    "Set GOOGLE_CLOUD_PROJECT trong .env hoặc đổi LLM_PROVIDER=ollama."
+                )
+        return self
 
     @field_validator("GENERATED_CHECKS_DIR", "REPORTS_DIR", mode="before")
     @classmethod

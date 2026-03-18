@@ -8,13 +8,37 @@ Schemas cho dữ liệu Rule.
 
 from enum import Enum
 from typing import Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RuleInput(BaseModel):
-    """1 entry trong rules.json."""
-    rule_id: str = Field(description="ID duy nhất, VD: 'R001'")
-    description: str = Field(description="Mô tả luật bằng ngôn ngữ tự nhiên")
+    """1 entry trong rules.json.
+
+    Example:
+        >>> r = RuleInput(rule_id="R001", description="Tất cả Gain block phải có SaturateOnIntegerOverflow bằng 'on'")
+    """
+
+    model_config = ConfigDict(json_schema_extra={
+        "examples": [
+            {
+                "rule_id": "R001",
+                "description": "Tất cả Gain block phải có SaturateOnIntegerOverflow bằng 'on'",
+            },
+            {
+                "rule_id": "R002",
+                "description": "Tất cả Abs block phải có SaturateOnIntegerOverflow bằng 'off'",
+            },
+        ]
+    })
+
+    rule_id: str = Field(description="ID duy nhất", examples=["R001", "R002", "R010"])
+    description: str = Field(
+        description="Mô tả luật bằng ngôn ngữ tự nhiên",
+        examples=[
+            "Tất cả Gain block phải có SaturateOnIntegerOverflow bằng 'on'",
+            "Tất cả inport(targetlink) phải set DataType cụ thể, không được để Inherited",
+        ],
+    )
 
 
 class RuleCondition(str, Enum):
@@ -27,50 +51,136 @@ class RuleCondition(str, Enum):
 
 
 class AdditionalConfig(BaseModel):
-    """Config phụ trong compound rule (nhiều config trên cùng block)."""
-    config_name: str = Field(description="Tên config phụ, VD: 'OutDataTypeStr'")
+    """Config phụ trong compound rule (nhiều config trên cùng block).
+
+    Example:
+        >>> c = AdditionalConfig(config_name="PortDimensions", condition=RuleCondition.NOT_EMPTY)
+    """
+
+    model_config = ConfigDict(json_schema_extra={
+        "examples": [
+            {"config_name": "PortDimensions", "condition": "not_empty", "expected_value": ""},
+            {"config_name": "OutDataTypeStr", "condition": "not_equal", "expected_value": "Inherit: auto"},
+        ]
+    })
+
+    config_name: str = Field(
+        description="Tên config phụ",
+        examples=["OutDataTypeStr", "PortDimensions", "RndMeth"],
+    )
     condition: RuleCondition = Field(description="Điều kiện check")
-    expected_value: str = Field(default="", description="Giá trị mong đợi")
+    expected_value: str = Field(
+        default="",
+        description="Giá trị mong đợi",
+        examples=["Inherit: auto", "on", "off", ""],
+    )
 
 
 class ParsedRule(BaseModel):
     """Output của Agent 0 — dữ liệu cấu trúc từ rule text.
 
     Hỗ trợ:
-      - Single config rule (mặc định, backward compatible)
+      - Single config rule (mặc định)
       - Multi-config compound rule (AND/OR nhiều config trên cùng block)
       - Multi-block rule (nhiều block types cùng 1 rule)
       - Scope filtering (all instances, specific path, subsystem)
-    """
-    rule_id: str = ""        # Pipeline gán sau, LLM không biết rule_id
-    block_keyword: str       # VD: "inport"
-    rule_alias: str          # VD: "inport(targetlink)"
-    config_name: str         # VD: "DataType" (primary config)
-    condition: RuleCondition # "equal" | "not_equal" | "not_empty" | "contains" | "in_list"
-    expected_value: str      # VD: "Inherit: auto" (giá trị cần check)
 
-    # Multi-config: compound conditions (AND/OR nhiều config trên cùng block)
+    Example — single rule:
+        >>> p = ParsedRule(
+        ...     block_keyword="gain", rule_alias="Gain block",
+        ...     config_name="SaturateOnIntegerOverflow",
+        ...     condition=RuleCondition.EQUAL, expected_value="on",
+        ... )
+
+    Example — compound rule:
+        >>> p = ParsedRule(
+        ...     block_keyword="inport", rule_alias="inport(targetlink)",
+        ...     config_name="OutDataTypeStr",
+        ...     condition=RuleCondition.NOT_EQUAL, expected_value="Inherit: auto",
+        ...     additional_configs=[
+        ...         AdditionalConfig(config_name="PortDimensions", condition=RuleCondition.NOT_EMPTY),
+        ...     ],
+        ...     compound_logic="AND",
+        ...     target_block_types=["TL_Inport"],
+        ... )
+    """
+
+    model_config = ConfigDict(json_schema_extra={
+        "examples": [
+            {
+                "rule_id": "R001",
+                "block_keyword": "gain",
+                "rule_alias": "Gain block",
+                "config_name": "SaturateOnIntegerOverflow",
+                "condition": "equal",
+                "expected_value": "on",
+                "additional_configs": [],
+                "compound_logic": "SINGLE",
+                "target_block_types": [],
+                "scope": "all_instances",
+                "scope_filter": "",
+            },
+            {
+                "rule_id": "R002",
+                "block_keyword": "abs",
+                "rule_alias": "Abs block",
+                "config_name": "SaturateOnIntegerOverflow",
+                "condition": "equal",
+                "expected_value": "off",
+                "additional_configs": [],
+                "compound_logic": "SINGLE",
+                "target_block_types": [],
+                "scope": "all_instances",
+                "scope_filter": "",
+            },
+        ]
+    })
+
+    rule_id: str = ""        # Pipeline gán sau, LLM không biết rule_id
+    block_keyword: str = Field(
+        description="Keyword tìm block, lowercase",
+        examples=["gain", "inport", "abs", "sum"],
+    )
+    rule_alias: str = Field(
+        description="Tên gốc của block trong rule text",
+        examples=["Gain block", "inport(targetlink)", "Abs block"],
+    )
+    config_name: str = Field(
+        description="Tên config chính cần check",
+        examples=["SaturateOnIntegerOverflow", "OutDataTypeStr", "DataType"],
+    )
+    condition: RuleCondition = Field(
+        description="Loại so sánh: equal, not_equal, not_empty, contains, in_list",
+    )
+    expected_value: str = Field(
+        description="Giá trị mong đợi",
+        examples=["on", "off", "Inherit: auto", ""],
+    )
+
+    # Multi-config
     additional_configs: list[AdditionalConfig] = Field(
         default_factory=list,
         description="Configs phụ nếu rule check nhiều config cùng lúc",
     )
     compound_logic: Literal["AND", "OR", "SINGLE"] = Field(
         default="SINGLE",
-        description="Logic ghép: SINGLE (1 config), AND (tất cả phải đúng), OR (ít nhất 1 đúng)",
+        description="Logic ghép: SINGLE (1 config), AND (tất cả đúng), OR (ít nhất 1 đúng)",
     )
 
-    # Multi-block: rule áp dụng cho nhiều block types
+    # Multi-block
     target_block_types: list[str] = Field(
         default_factory=list,
         description="Explicit list block types. Rỗng = auto-discover từ block_keyword",
+        examples=[[], ["TL_Inport"], ["Gain", "Sum"]],
     )
 
-    # Scope filtering
+    # Scope
     scope: Literal["all_instances", "specific_path", "subsystem"] = Field(
         default="all_instances",
-        description="Phạm vi check: tất cả instances, path cụ thể, hoặc 1 subsystem",
+        description="Phạm vi check",
     )
     scope_filter: str = Field(
         default="",
-        description="Pattern lọc khi scope != 'all_instances'. VD: 'SubSystem1/*'",
+        description="Pattern lọc khi scope != 'all_instances'",
+        examples=["", "SubSystem1/*"],
     )
