@@ -56,6 +56,7 @@ targetlink/
 │   ├── model_differ.py              # Pure Python XML diff (2 models)
 │   ├── model_index.py               # Index model structure
 │   ├── defaults_parser.py           # Parse bddefaults.xml
+│   ├── block_finder.py              # Universal block finder (3 representations)
 │   ├── block_discoverer.py          # Discover blocks in model
 │   ├── input_validator.py           # Validate input files
 │   ├── output_truncator.py          # Truncate large outputs
@@ -82,7 +83,9 @@ targetlink/
 ├── generated_checks/                # Code Python sinh ra (auto-generated)
 ├── reports/                         # Báo cáo kết quả (auto-generated)
 ├── tests/                           # Unit + integration tests
+│   ├── test_block_finder.py
 │   ├── test_exploration_cache.py
+│   ├── test_fixes.py
 │   ├── test_loop_detector.py
 │   ├── test_model_differ.py
 │   ├── test_model_factory.py
@@ -102,7 +105,7 @@ Hệ thống gồm **7 Agents** hoạt động theo pipeline:
 1. **Agent 0 (Rule Analyzer)**: Đọc file luật (text) → Trích xuất block cần tìm, config cần check, và điều kiện.
 2. **Agent 1 (Data Reader)**: Tìm kiếm block trong từ điển JSON (rapidfuzz, không LLM) → Phân tích description.
 3. **Agent 1.5 (Diff Analyzer)** *(tuỳ chọn)*: So sánh 2 version model → Phát hiện config thay đổi → Cung cấp ground truth cho Agent 2 & 5.
-4. **Agent 2 (Code Generator)**: Đọc XML tree thực tế qua tools → Sinh Python code check rule. **Agentic** — tự gọi 5-15 tools.
+4. **Agent 2 (Code Generator)**: Đọc XML tree thực tế qua tools → Sinh Python code check rule. **Agentic** — tự gọi 7-20 tools.
 5. **Agent 3 (Validator)**: Chạy code sandbox → So sánh kết quả với test case. **Pure Python, không LLM.**
 6. **Agent 4 (Bug Fixer)**: Nếu code lỗi Runtime/Syntax → Đọc traceback → Sửa code.
 7. **Agent 5 (Inspector)**: Nếu kết quả sai → Điều tra sâu XML → Viết lại code. **Agentic** — tự gọi 8-20 tools.

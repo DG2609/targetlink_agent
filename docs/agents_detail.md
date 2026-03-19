@@ -24,6 +24,9 @@ class ParsedRule(BaseModel):           # Agent 0 Output
 class BlockMappingData(BaseModel):     # Agent 1 Output
     name_ui: str                # VD: "Gain"
     name_xml: str               # VD: "Gain"
+    xml_representation: str     # "native", "masked", "reference", "unknown"
+    search_confidence: int      # 0-100
+    source_type_pattern: str    # VD: "Compare To Constant" (for Reference blocks)
     config_map_analysis: str    # LLM summary: XPath hints, mode, special notes
 
 # ── schemas/diff_schemas.py ──
@@ -64,7 +67,7 @@ class RuleReport(BaseModel):           # Kết quả 1 rule
     match_expected: bool
     generated_script: str
     needs_human_review: bool
-    pipeline_trace: list[dict]
+    pipeline_trace: list[TraceEntry]  # TraceEntry(agent, attempt)
     rule_duration_seconds: Optional[float]
 
 class FinalReport(BaseModel):          # Báo cáo tổng hợp
@@ -119,10 +122,10 @@ class FinalReport(BaseModel):          # Báo cáo tổng hợp
 
 - **Vai trò**: Khám phá XML tree → Sinh Python code check rule.
 - **LLM Model**: `create_model()` — full model, cần tool calling mạnh.
-- **tool_call_limit**: 15 (~3 explore + ~5 verify + ~1 write + buffer)
+- **tool_call_limit**: 20 (~7 explore + ~3 verify + ~1 write + buffer cho compound rules)
 - **Tính chất**: Agentic (multi-step, tự chủ dùng tools). Không có memory (mỗi lần bắt đầu từ đầu), nhưng nhận cross-rule cache từ rules trước.
 - **Skill (Tools) cấp phát**:
-  - **Model-level**: `build_model_hierarchy`, `find_blocks_recursive`, `query_config`, `trace_connections`, `trace_cross_subsystem`
+  - **Model-level**: `build_model_hierarchy`, `find_blocks_recursive`, `query_config`, `list_all_configs`, `trace_connections`, `trace_cross_subsystem`, `list_all_block_types`, `find_config_locations`, `auto_discover_blocks`
   - **XML chi tiết**: `list_xml_files`, `read_xml_structure`, `test_xpath_query`, `deep_search_xml_text`, `read_parent_nodes`
   - **Sinh code**: `write_python_file`
 - **Input**: `ParsedRule` + `BlockMappingData` + (tuỳ chọn) `ConfigDiscovery` + (tuỳ chọn) cross-rule cache hint
@@ -165,7 +168,7 @@ WRONG_RESULT   → Chuyển Agent 5 (nếu chưa hết retry)
 - **Vai trò**: Đọc error traceback → Sửa code.
 - **LLM Model**: `create_model()` — full model.
 - **tool_call_limit**: 10 (~2 read + ~1-2 rewrites, ít hơn Agent 2/5 vì không cần explore XML)
-- **Skill (Tools)**: `read_python_file`, `patch_python_file`
+- **Skill (Tools)**: `read_error_traceback`, `read_python_file`, `patch_python_file`
 - **Input**: `ValidationResult` (status=CODE_ERROR)
 - **Output**: File code đã sửa (ghi qua `patch_python_file`)
 - **Instructions**: `skills/bug-fixer/SKILL.md`
@@ -180,9 +183,9 @@ WRONG_RESULT   → Chuyển Agent 5 (nếu chưa hết retry)
 - **tool_call_limit**: 20 (~5 read + ~8 investigate + ~2 verify + 1 write + buffer)
 - **Tính chất**: Agentic (multi-step). Nhận exploration_summary từ Agent 2 và previous_findings từ retry trước.
 - **Skill (Tools) cấp phát**:
-  - **Model-level**: `build_model_hierarchy`, `find_blocks_recursive`, `query_config`, `trace_connections`, `read_raw_block_config`, `trace_cross_subsystem`
+  - **Model-level**: `build_model_hierarchy`, `find_blocks_recursive`, `query_config`, `list_all_configs`, `trace_connections`, `read_raw_block_config`, `trace_cross_subsystem`, `list_all_block_types`, `find_config_locations`, `auto_discover_blocks`
   - **XML chi tiết**: `list_xml_files`, `deep_search_xml_text`, `read_xml_structure`, `read_parent_nodes`, `test_xpath_query`
-  - **Sinh code**: `rewrite_advanced_code`
+  - **Sinh code**: `read_python_file`, `rewrite_advanced_code`
 - **Input**: `ValidationResult` + `BlockMappingData` + exploration_summary + previous_findings + (tuỳ chọn) ConfigDiscovery
 - **Output**: File code mới (ghi qua `rewrite_advanced_code`)
 - **Instructions**: `skills/model-inspector/SKILL.md`
@@ -216,7 +219,7 @@ Retry cuối cùng, Agent 5 được hướng dẫn escalate:
 2. **SANDBOX**: Agent 3 chạy code trong subprocess isolation.
 3. **PYDANTIC VALIDATION**: Dữ liệu giữa agents luôn qua `.model_validate()`.
 4. **RETRY LIMIT**: Tối đa 3 lần retry cho Agent 4 và Agent 5.
-5. **TOOL CALL LIMIT**: Agent 2 (15), Agent 4 (10), Agent 5 (20).
+5. **TOOL CALL LIMIT**: Agent 2 (20), Agent 4 (10), Agent 5 (20).
 6. **MODEL FACTORY**: Tất cả agents dùng `create_model()` — KHÔNG import trực tiếp Gemini/Ollama.
 
 ---
@@ -231,7 +234,11 @@ Retry cuối cùng, Agent 5 được hướng dẫn escalate:
 | 1.5 | (LLM structured output) | Interpret diff → ConfigDiscovery | Read-only |
 | 2 | `build_model_hierarchy` | Xem cây subsystem | Read-only |
 | 2 | `find_blocks_recursive` | Tìm blocks xuyên layers | Read-only |
+| 2 | `list_all_block_types` | Liệt kê tất cả block types + identity | Read-only |
+| 2 | `find_config_locations` | Reverse lookup: config → block types | Read-only |
+| 2 | `auto_discover_blocks` | Scan model tìm blocks matching keyword | Read-only |
 | 2 | `query_config` | Rút config + default fallback | Read-only |
+| 2 | `list_all_configs` | Liệt kê tất cả configs cho 1 block | Read-only |
 | 2 | `trace_connections` | Trace signal connections | Read-only |
 | 2 | `trace_cross_subsystem` | Trace xuyên subsystem | Read-only |
 | 2 | `list_xml_files` | Liệt kê file XML | Read-only |
@@ -241,11 +248,16 @@ Retry cuối cùng, Agent 5 được hướng dẫn escalate:
 | 2 | `read_parent_nodes` | Đọc ancestry chain | Read-only |
 | 2 | `write_python_file` | Sinh file script | Write |
 | 3 | (Pure Python) | subprocess.run + JSON compare | Execute |
+| 4 | `read_error_traceback` | Phân tích traceback lỗi | Read-only |
 | 4 | `read_python_file` | Đọc code bị lỗi | Read-only |
 | 4 | `patch_python_file` | Sửa file code | Write |
 | 5 | `build_model_hierarchy` | Xem cây subsystem | Read-only |
 | 5 | `find_blocks_recursive` | Tìm blocks xuyên layers | Read-only |
+| 5 | `list_all_block_types` | Liệt kê tất cả block types + identity | Read-only |
+| 5 | `find_config_locations` | Reverse lookup: config → block types | Read-only |
+| 5 | `auto_discover_blocks` | Scan model tìm blocks matching keyword | Read-only |
 | 5 | `query_config` | Rút config + default | Read-only |
+| 5 | `list_all_configs` | Liệt kê tất cả configs cho 1 block | Read-only |
 | 5 | `trace_connections` | Trace connections | Read-only |
 | 5 | `read_raw_block_config` | Đọc raw config (escalation) | Read-only |
 | 5 | `trace_cross_subsystem` | Trace xuyên subsystem | Read-only |
@@ -254,4 +266,5 @@ Retry cuối cùng, Agent 5 được hướng dẫn escalate:
 | 5 | `read_xml_structure` | Xem cấu trúc XML | Read-only |
 | 5 | `read_parent_nodes` | Đọc ancestry chain | Read-only |
 | 5 | `test_xpath_query` | Verify XPath | Read-only |
+| 5 | `read_python_file` | Đọc code hiện tại | Read-only |
 | 5 | `rewrite_advanced_code` | Viết lại code mới | Write |

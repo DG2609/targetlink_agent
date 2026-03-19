@@ -93,9 +93,9 @@ agent = Agent(
 | Nhóm Skill | Tools | Agents sử dụng | Mô tả |
 |------------|-------|----------------|-------|
 | **Đọc XML (file-level)** | `list_xml_files`, `read_xml_structure`, `test_xpath_query`, `deep_search_xml_text`, `read_parent_nodes` | Agent 2, 5 | Khám phá XML tree từng phần (READ-ONLY) |
-| **Đọc XML (model-level)** | `build_model_hierarchy`, `find_blocks_recursive`, `query_config`, `trace_connections`, `read_raw_block_config`, `trace_cross_subsystem` | Agent 2, 5 | Cross-file, hierarchy-aware, default fallback |
+| **Đọc XML (model-level)** | `build_model_hierarchy`, `find_blocks_recursive`, `query_config`, `list_all_configs`, `trace_connections`, `read_raw_block_config`, `trace_cross_subsystem`, `list_all_block_types`, `find_config_locations`, `auto_discover_blocks` | Agent 2, 5 | Cross-file, hierarchy-aware, default fallback |
 | **Tìm kiếm** | `fuzzy_search_json`, `read_dictionary` | Agent 1 | Tra cứu block trong từ điển JSON |
-| **Lập trình** | `write_python_file`, `read_python_file`, `patch_python_file`, `rewrite_advanced_code` | Agent 2, 4, 5 | Sinh/sửa code Python |
+| **Lập trình** | `write_python_file`, `read_python_file`, `read_error_traceback`, `patch_python_file`, `rewrite_advanced_code` | Agent 2, 4, 5 | Sinh/sửa code Python |
 | **Thực thi** | (Pure Python — subprocess.run + JSON compare) | Agent 3 | Chạy code sandbox + so sánh kết quả. KHÔNG dùng LLM. |
 
 ---
@@ -279,7 +279,7 @@ Các Agent truyền dữ liệu qua **Pydantic Data Contracts** theo chiều pip
 ### Agent 2: Code Generator (Copilot 1)
 - **Vai trò**: Khám phá XML → sinh Python code check rule.
 - **LLM Model**: `create_model()` (full model)
-- **tool_call_limit**: 15
+- **tool_call_limit**: 20
 - **Agentic**: Tự gọi build_model_hierarchy → find_blocks_recursive → query_config → test_xpath_query → write_python_file
 
 ### Agent 3: Validator (Reviewer)
@@ -334,7 +334,7 @@ Khi Agent 5 ở retry cuối cùng, SKILL.md hướng dẫn 5 chiến thuật es
 - **Pydantic Data Contract** — output Agent A luôn validate trước khi vào Agent B.
 - **Sandbox execution** — code sinh ra chạy trong subprocess cách ly.
 - **Tất cả XML access qua lxml** in-memory parse, không ghi ngược file .slx.
-- **tool_call_limit** — Agent 2 (15), Agent 4 (10), Agent 5 (20) — ngăn infinite loops.
+- **tool_call_limit** — Agent 2 (20), Agent 4 (10), Agent 5 (20) — ngăn infinite loops.
 
 ---
 
