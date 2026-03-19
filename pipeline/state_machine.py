@@ -17,6 +17,7 @@ from enum import Enum
 from schemas.validation_schemas import ValidationResult, ValidationStatus
 from schemas.block_schemas import BlockMappingData
 from schemas.diff_schemas import ConfigDiscovery
+from schemas.report_schemas import TraceEntry
 from schemas.agent_inputs import Agent4Input, Agent5Input
 from pipeline.retry import classify_error, ErrorCategory, EARLY_ESCALATE_AFTER
 
@@ -59,7 +60,8 @@ class RetryStateMachine:
         self.agent5_count = 0
         self.state = RetryState.VALIDATE
         self._error_history: list[str] = []
-        self._trace: list[dict] = []
+        self._trace: list[TraceEntry] = []
+        self._last_dedup_attempts: int = -1
 
     # ── State transitions ────────────────────────────
 
@@ -115,12 +117,12 @@ class RetryStateMachine:
             self.agent4_count += 1
         elif agent_name == "agent5":
             self.agent5_count += 1
-        self._trace.append({
-            "agent": agent_name,
-            "attempt": self.agent4_count if agent_name == "agent4" else self.agent5_count,
-        })
+        self._trace.append(TraceEntry(
+            agent=agent_name,
+            attempt=self.agent4_count if agent_name == "agent4" else self.agent5_count,
+        ))
 
-    def get_trace(self) -> list[dict]:
+    def get_trace(self) -> list[TraceEntry]:
         return list(self._trace)
 
     # ── Error tracking ───────────────────────────────
@@ -148,9 +150,16 @@ class RetryStateMachine:
         else:
             entry = f"{validation.status.value}({error_cat}){tc_info}"
 
-        # Dedup: skip nếu trùng entry cuối (LLM fail → same validation lặp lại)
-        if self._error_history and self._error_history[-1] == entry:
+        # Dedup: skip chỉ khi HOÀN TOÀN giống entry cuối VÀ cùng retry iteration
+        # (cùng error + cùng test case + chưa có retry nào chạy giữa = LLM fail lặp lại)
+        total_attempts = self.agent4_count + self.agent5_count
+        if (
+            self._error_history
+            and self._error_history[-1] == entry
+            and getattr(self, "_last_dedup_attempts", -1) == total_attempts
+        ):
             return
+        self._last_dedup_attempts = total_attempts
         self._error_history.append(entry)
 
     # ── Context builders ─────────────────────────────
@@ -161,6 +170,7 @@ class RetryStateMachine:
         Dùng Agent4Input schema → to_prompt() để format nhất quán.
         """
         inp = Agent4Input(
+            rule_id=validation.rule_id,
             code_file_path=validation.code_file_path,
             failed_test_case=validation.failed_test_case or "N/A",
             stderr=validation.stderr or "",

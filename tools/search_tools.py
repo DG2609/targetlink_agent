@@ -6,9 +6,12 @@ Fuzzy search dùng rapidfuzz — KHÔNG tốn LLM token cho bước tìm kiếm.
 """
 
 import json
+import logging
 from pathlib import Path
 from rapidfuzz import fuzz
 from agno.tools import Toolkit
+
+logger = logging.getLogger(__name__)
 
 
 class SearchToolkit(Toolkit):
@@ -28,8 +31,15 @@ class SearchToolkit(Toolkit):
     def _get_blocks(self) -> list[dict]:
         """Lazy load blocks JSON (chỉ đọc 1 lần)."""
         if self._blocks is None:
-            content = Path(self.blocks_json_path).read_text(encoding="utf-8")
-            self._blocks = json.loads(content)
+            try:
+                content = Path(self.blocks_json_path).read_text(encoding="utf-8")
+                self._blocks = json.loads(content)
+            except FileNotFoundError:
+                logger.warning(f"blocks.json không tồn tại: {self.blocks_json_path}")
+                self._blocks = []
+            except json.JSONDecodeError as e:
+                logger.warning(f"blocks.json JSON lỗi: {e}")
+                self._blocks = []
         return self._blocks
 
     # ──────────────────────────────────────────────
@@ -49,7 +59,7 @@ class SearchToolkit(Toolkit):
 
         Returns:
             JSON array top matches, mỗi entry gồm: name_ui, name_xml, score, description (rút gọn).
-            Trả về thông báo nếu không tìm thấy match nào >= 50% similarity.
+            Trả về thông báo nếu không tìm thấy match nào >= 35% similarity.
         """
         blocks = self._get_blocks()
         top_k = min(max(top_k, 1), 5)
@@ -64,10 +74,10 @@ class SearchToolkit(Toolkit):
         # Sort giảm dần theo score
         scored.sort(key=lambda x: x[0], reverse=True)
 
-        # Lọc threshold >= 50
+        # Lọc threshold >= 35 (giảm từ 50 để bắt được các trường hợp viết khác format)
         results = []
         for score, block in scored[:top_k]:
-            if score < 50:
+            if score < 35:
                 break
             results.append({
                 "name_ui": block.get("name_ui", ""),
@@ -77,7 +87,7 @@ class SearchToolkit(Toolkit):
             })
 
         if not results:
-            return f"Không tìm thấy block nào match keyword '{keyword}' (threshold >= 50%). Thử keyword khác."
+            return f"Không tìm thấy block nào match keyword '{keyword}' (threshold >= 35%). Thử keyword khác."
 
         return f"Tìm thấy {len(results)} matches cho '{keyword}':\n" + json.dumps(
             results, indent=2, ensure_ascii=False

@@ -25,7 +25,10 @@ _DANGEROUS_PATTERNS = [
 
 
 def _static_check(code_content: str) -> list[str]:
-    """Static checks trước khi chạy code. Trả về list lỗi (rỗng = OK)."""
+    """Static checks trước khi chạy code. Trả về list lỗi (rỗng = OK).
+
+    Items bắt đầu bằng 'WARNING:' là non-blocking — chỉ log, không fail.
+    """
     errors: list[str] = []
 
     # Check 1: Phải có main() hoặc check_rule() function
@@ -47,6 +50,17 @@ def _static_check(code_content: str) -> list[str]:
     for pattern, description in _DANGEROUS_PATTERNS:
         if re.search(pattern, code_content):
             errors.append(f"Code chứa pattern nguy hiểm: {description}")
+
+    # Check 5 (warning): Nên dùng block_finder thay vì hardcode xpath
+    uses_block_finder = "block_finder" in code_content
+    uses_hardcoded_xpath = bool(re.search(r"Block\[@BlockType=", code_content))
+    if uses_hardcoded_xpath and not uses_block_finder:
+        # Warning, không blocking — nhưng log để Agent 5 biết nếu cần fix
+        errors.append(
+            "WARNING: Code dùng hardcoded BlockType xpath thay vì import block_finder. "
+            "Có thể miss Reference/MaskType blocks. "
+            "Nên dùng: from utils.block_finder import find_blocks"
+        )
 
     return errors
 
@@ -103,7 +117,9 @@ class Validator:
                 test_cases_total=total,
             )
 
-        static_errors = _static_check(code_content)
+        static_messages = _static_check(code_content)
+        static_errors = [m for m in static_messages if not m.startswith("WARNING:")]
+        static_warnings = [m for m in static_messages if m.startswith("WARNING:")]
         if static_errors:
             return ValidationResult(
                 rule_id=rule_id,
@@ -118,6 +134,7 @@ class Validator:
         first_fail_stdout: str | None = None
         first_fail_actual: dict | None = None
         first_fail_expected: dict | None = None
+        first_fail_details: dict | None = None
 
         for i, tc in enumerate(test_cases):
             # Extract model .slx → thư mục XML
@@ -163,6 +180,7 @@ class Validator:
                     first_fail_stdout = exec_result["stdout"]
                     first_fail_actual = comparison["actual_summary"]
                     first_fail_expected = comparison["expected_summary"]
+                    first_fail_details = comparison.get("actual_details")
 
         # Quyết định status
         if passed == total:
@@ -182,6 +200,7 @@ class Validator:
             failed_test_case=first_fail_tc,
             test_cases_passed=passed,
             test_cases_total=total,
+            actual_details=first_fail_details,
         )
 
     # ──────────────────────────────────────────────
@@ -249,6 +268,23 @@ class Validator:
                     "expected": expected_val,
                 })
 
+        # Extract block names từ details (nếu có) — giúp Agent 5 diagnose
+        actual_details = None
+        details = actual.get("details")
+        if isinstance(details, dict):
+            pass_names = [
+                b.get("block_name", "?")
+                for b in (details.get("pass") or [])[:10]
+            ]
+            fail_names = [
+                b.get("block_name", "?")
+                for b in (details.get("fail") or [])[:10]
+            ]
+            actual_details = {
+                "pass_block_names": pass_names,
+                "fail_block_names": fail_names,
+            }
+
         return {
             "match": len(differences) == 0,
             "differences": differences,
@@ -262,6 +298,7 @@ class Validator:
                 "pass": test_case.expected_pass,
                 "fail": test_case.expected_fail,
             },
+            "actual_details": actual_details,
         }
 
 

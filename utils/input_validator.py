@@ -40,37 +40,40 @@ def validate_rule_input(rule: ParsedRule, model_dir: str) -> list[str]:
         return messages
 
     # Check 3: block_keyword có map tới BlockType/MaskType thực tế không
-    from lxml import etree
+    # Skip check nếu block_keyword rỗng (config-only rule — hợp lệ)
+    if rule.block_keyword and rule.block_keyword.strip():
+        from lxml import etree
 
-    found_block_types: set[str] = set()
-    found_mask_types: set[str] = set()
+        found_block_types: set[str] = set()
+        found_mask_types: set[str] = set()
 
-    for sf in system_files:
-        try:
-            tree = etree.parse(str(sf))
-            root = tree.getroot()
-            for block in root.findall("Block"):
-                bt = block.get("BlockType", "")
-                if bt:
-                    found_block_types.add(bt)
-                for p in block.findall("P"):
-                    if p.get("Name") == "MaskType":
-                        mt = (p.text or "").strip()
-                        if mt:
-                            found_mask_types.add(mt)
-        except Exception:
-            continue
+        for sf in system_files:
+            try:
+                tree = etree.parse(str(sf))
+                root = tree.getroot()
+                for block in root.findall("Block"):
+                    bt = block.get("BlockType", "")
+                    if bt:
+                        found_block_types.add(bt)
+                    for p in block.findall("P"):
+                        if p.get("Name") == "MaskType":
+                            mt = (p.text or "").strip()
+                            if mt:
+                                found_mask_types.add(mt)
+            except Exception as e:
+                logger.warning(f"Không parse được {sf.name}: {e}")
+                continue
 
-    all_types = found_block_types | found_mask_types
-    keyword = rule.block_keyword.lower()
+        all_types = found_block_types | found_mask_types
+        keyword = rule.block_keyword.lower()
 
-    # Tìm block type nào match keyword
-    matched = [t for t in all_types if keyword in t.lower()]
-    if not matched:
-        messages.append(
-            f"WARNING: block_keyword '{rule.block_keyword}' không khớp BlockType/MaskType nào "
-            f"trong model. Có thể Agent 1 sẽ tìm được qua blocks.json."
-        )
+        # Tìm block type nào match keyword
+        matched = [t for t in all_types if keyword in t.lower()]
+        if not matched:
+            messages.append(
+                f"WARNING: block_keyword '{rule.block_keyword}' không khớp BlockType/MaskType nào "
+                f"trong model. Có thể Agent 1 sẽ tìm được qua blocks.json."
+            )
 
     # Check 4: config_name có tồn tại trong bddefaults.xml hoặc block XML không
     defaults_map = parse_bddefaults(model_dir)

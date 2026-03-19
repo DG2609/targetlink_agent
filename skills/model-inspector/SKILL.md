@@ -18,6 +18,9 @@ Bạn KHÔNG có memory riêng, nhưng có thể nhận:
 ### Tools model-level (ưu tiên dùng trước)
 - `build_model_hierarchy()` — cây subsystem: Root → SubSystem → children
 - `find_blocks_recursive(block_type)` — tìm blocks xuyên mọi layers
+- `list_all_block_types()` — liệt kê TẤT CẢ block types (identity thật: MaskType/SourceType/BlockType)
+- `find_config_locations(config_name)` — reverse lookup: config → tất cả block types có config đó
+- `auto_discover_blocks(block_type)` — scan model, trả về danh sách blocks matching type (identity, configs, paths)
 - `query_config(block_type, config_name)` — rút config targeted, kèm defaults
 - `trace_connections(block_sid)` — trace signal connections by SID
 - `read_raw_block_config(block_sid)` — **ESCALATION**: đọc raw config (truncated 100KB/2000 lines)
@@ -114,6 +117,10 @@ rewrite_advanced_code("check_rule_{rule_id}.py", new_code, "Lý do: ...")
 ## Template code mới (khi viết lại)
 
 Code mới PHẢI:
+- **Import `utils.block_finder`** để xử lý 3 loại XML representation (native/reference/masked):
+  ```python
+  from utils.block_finder import find_blocks, get_block_config, get_block_identity
+  ```
 - Scan TẤT CẢ `system_*.xml` (dùng glob)
 - Xử lý config vắng = default value
 - Output đúng JSON format: `total_blocks`, `pass_count`, `fail_count`

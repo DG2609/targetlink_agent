@@ -94,10 +94,20 @@ class ExplorationCache:
 
             if name == "build_model_hierarchy":
                 self.store_hierarchy(result)
-            elif name == "find_blocks_recursive" and block_type:
-                self.store_blocks(block_type, result)
-            elif name == "query_config" and block_type and config_name:
-                self.store_config(block_type, config_name, result)
+            elif name == "find_blocks_recursive":
+                # Use block_type from args if available, fallback to caller's block_type
+                bt = block_type
+                args = getattr(tool, "tool_args", {}) or {}
+                if args.get("block_type"):
+                    bt = args["block_type"]
+                if bt:
+                    self.store_blocks(bt, result)
+            elif name == "query_config":
+                args = getattr(tool, "tool_args", {}) or {}
+                bt = args.get("block_type", block_type)
+                cn = args.get("config_name", config_name)
+                if bt and cn:
+                    self.store_config(bt, cn, result)
 
 
 def extract_exploration_summary(tools: list) -> str:

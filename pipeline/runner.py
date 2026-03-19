@@ -104,6 +104,14 @@ async def run_pipeline(
             exploration_cache=exploration_cache,
         )
     else:
+        # Pre-populate hierarchy vào cache trước khi spawn parallel tasks
+        # → tất cả tasks dùng chung hierarchy (tránh N lần parse lại)
+        if exploration_cache:
+            from utils.model_index import ModelIndex
+            idx = ModelIndex(model_dir, shared_xml_cache)
+            hierarchy = idx.build_hierarchy()
+            exploration_cache.store_hierarchy(json.dumps(hierarchy, indent=2, ensure_ascii=False))
+
         rule_reports = await _run_parallel(
             rules, expected_list, _make_agents, concurrency, model_dir,
             diff_result=diff_result,
@@ -171,11 +179,13 @@ async def _run_parallel(
                     exploration_cache=exploration_cache,
                 )
             except Exception as e:
-                logger.error(f"[{rule.rule_id}] Unexpected error in parallel task: {e}")
+                import traceback
+                tb = traceback.format_exc()
+                logger.error(f"[{rule.rule_id}] Unexpected error in parallel task: {e}\n{tb}")
                 validation = ValidationResult(
                     rule_id=rule.rule_id,
                     status=ValidationStatus.SCHEMA_ERROR,
-                    stderr=f"Parallel task error: {e}",
+                    stderr=f"Parallel task error: {e}\n{tb}",
                     code_file_path="",
                 )
                 report = RuleReport.from_validation(rule.rule_id, validation, [])
@@ -230,28 +240,54 @@ async def _process_rule(
                 )
 
         # ── Agent 1: Search block dictionary ─────────────
-        t1 = time.monotonic()
-        agent1_input = Agent1Input(
-            block_keyword=parsed_rule.block_keyword,
-            config_name=parsed_rule.config_name,
-        )
-        response1 = await agent1.arun(agent1_input.to_prompt())
-        block_data = _extract_content(response1, "Agent 1", BlockMappingData)
-        steps.append(_step("Agent 1 (Data Reader)", t1, output_summary=f"name_xml={block_data.name_xml}"))
-        logger.debug(f"[{rule.rule_id}] Agent 1: name_xml={block_data.name_xml}")
+        # Skip Agent 1 khi block_keyword rỗng (config-only rule)
+        if parsed_rule.block_keyword:
+            t1 = time.monotonic()
+            agent1_input = Agent1Input(
+                block_keyword=parsed_rule.block_keyword,
+                config_name=parsed_rule.config_name,
+            )
+            response1 = await agent1.arun(agent1_input.to_prompt())
+            block_data = _extract_content(response1, "Agent 1", BlockMappingData)
+            steps.append(_step("Agent 1 (Data Reader)", t1, output_summary=f"name_xml={block_data.name_xml}"))
+            logger.debug(f"[{rule.rule_id}] Agent 1: name_xml={block_data.name_xml}")
+        else:
+            # Config-only rule: skip Agent 1, tạo BlockMappingData rỗng
+            # Agent 2 sẽ tự dùng find_config_locations() để xác định block types
+            block_data = BlockMappingData(
+                name_ui="",
+                name_xml="",
+                xml_representation="unknown",
+                search_confidence=0,
+                config_map_analysis=(
+                    f"Rule không chỉ định block type. Config '{parsed_rule.config_name}' "
+                    f"cần được tìm bằng find_config_locations('{parsed_rule.config_name}') "
+                    f"để xác định tất cả block types có config này."
+                ),
+            )
+            steps.append(_step("Agent 1 (SKIPPED — config-only rule)", time.monotonic()))
+            logger.info(f"[{rule.rule_id}] Agent 1 skipped — block_keyword rỗng, config-only rule")
 
         # ── Agent 1.5: Diff Analyzer (chỉ khi có diff_result) ──
         if diff_result and agent1_5 and diff_result.config_changes:
+            # Nếu config-only rule (block_data.name_xml rỗng), thử infer block_type từ diff
+            agent1_5_block_type = block_data.name_xml
+            if not agent1_5_block_type:
+                for change in diff_result.config_changes:
+                    if change.config_name == parsed_rule.config_name:
+                        agent1_5_block_type = change.mask_type or change.block_type
+                        break
+
             diff_context = build_agent_context(
                 diff_result,
-                block_type=block_data.name_xml,
+                block_type=agent1_5_block_type,
                 config_name=parsed_rule.config_name,
                 model_dir=model_dir,
             )
             t1_5 = time.monotonic()
             logger.info(f"[{rule.rule_id}] Agent 1.5: phân tích diff ({len(diff_result.config_changes)} changes)")
             agent1_5_input = Agent1_5Input(
-                block_type=block_data.name_xml,
+                block_type=agent1_5_block_type,
                 config_name=parsed_rule.config_name,
                 name_ui=block_data.name_ui,
                 config_map_analysis=block_data.config_map_analysis,
@@ -384,7 +420,9 @@ async def _process_rule(
                     if agent5_tools:
                         notes = extract_investigation_notes(agent5_tools)
                         if notes:
-                            # Cap at 3 most recent findings to prevent context inflation
+                            # Cap per-note length + keep only 3 most recent
+                            if len(notes) > 1500:
+                                notes = notes[:1500] + "\n... [truncated]"
                             agent5_findings.append(notes)
                             if len(agent5_findings) > 3:
                                 agent5_findings = agent5_findings[-3:]
@@ -427,13 +465,17 @@ async def _process_rule(
 
 
 def _reset_xml_toolkit(agents) -> None:
-    """Reset loop detector trên shared XmlToolkit khi chuyển agent."""
-    for agent in (agents[2], agents[5]):
+    """Reset loop detector trên shared XmlToolkit khi chuyển agent.
+
+    Iterates all agents looking for XmlToolkit — robust against index changes.
+    Shared toolkit → reset 1 lần là đủ.
+    """
+    for agent in agents:
         if hasattr(agent, "tools"):
-            for tool in agent.tools:
+            for tool in getattr(agent, "tools", []) or []:
                 if hasattr(tool, "reset_loop_detector"):
                     tool.reset_loop_detector()
-                    return  # Shared toolkit — reset 1 lần là đủ
+                    return
 
 
 def _run_validation(
@@ -447,9 +489,15 @@ def _extract_content(response, agent_name: str, expected_type: type):
     """Extract .content từ RunResponse với null-check và type validation."""
     content = response.content
     if content is None:
+        # Include response text (nếu có) để debug
+        resp_text = ""
+        if hasattr(response, "messages") and response.messages:
+            last_msg = response.messages[-1]
+            resp_text = str(getattr(last_msg, "content", ""))[:300]
         raise ValueError(
             f"{agent_name} trả về content=None (expected {expected_type.__name__}). "
-            f"LLM có thể đã fail structured output. Kiểm tra response_model configuration."
+            f"LLM có thể đã fail structured output. "
+            f"Response text: {resp_text or '(empty)'}"
         )
     if not isinstance(content, expected_type):
         raise TypeError(

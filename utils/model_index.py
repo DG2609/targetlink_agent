@@ -154,6 +154,19 @@ class ModelIndex:
                     if p_name:
                         configs[f"InstanceData.{p_name}"] = (p.text or "").strip()
 
+            # MaskValueString (pipe-separated params for masked blocks)
+            mask_names_node = block.find("P[@Name='MaskNames']")
+            mask_values_node = block.find("P[@Name='MaskValueString']")
+            if mask_names_node is not None and mask_values_node is not None:
+                names_text = mask_names_node.text or ""
+                values_text = mask_values_node.text or ""
+                m_names = names_text.split("|")
+                m_values = values_text.split("|")
+                for mi, m_name in enumerate(m_names):
+                    m_name = m_name.strip()
+                    if m_name and mi < len(m_values):
+                        configs[f"MaskValue.{m_name}"] = m_values[mi].strip()
+
             results.append({
                 "name": name,
                 "sid": sid,
@@ -256,6 +269,17 @@ class ModelIndex:
                 name = p.get("Name")
                 if name:
                     explicit_configs[f"InstanceData.{name}"] = (p.text or "").strip()
+
+        # MaskValueString configs
+        mask_names_node = block.find("P[@Name='MaskNames']")
+        mask_values_node = block.find("P[@Name='MaskValueString']")
+        if mask_names_node is not None and mask_values_node is not None:
+            m_names = (mask_names_node.text or "").split("|")
+            m_values = (mask_values_node.text or "").split("|")
+            for mi, m_name in enumerate(m_names):
+                m_name = m_name.strip()
+                if m_name and mi < len(m_values):
+                    explicit_configs[f"MaskValue.{m_name}"] = m_values[mi].strip()
 
         # Defaults từ bddefaults.xml
         defaults_map = parse_bddefaults(self.model_dir)

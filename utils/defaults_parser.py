@@ -27,21 +27,31 @@ def parse_bddefaults(model_dir: str) -> dict[str, dict[str, str]]:
     Returns:
         Dict 2 tầng: {block_type → {config_name → default_value}}
         VD: {"Gain": {"SaturateOnIntegerOverflow": "off", "Gain": "1", ...}}
-
-    Raises:
-        FileNotFoundError: Nếu bddefaults.xml không tồn tại.
+        Trả về dict rỗng nếu file không tồn tại hoặc parse lỗi.
     """
     if model_dir in _defaults_cache:
         return _defaults_cache[model_dir]
 
     bd_path = Path(model_dir) / "simulink" / "bddefaults.xml"
     if not bd_path.exists():
-        logger.warning(f"bddefaults.xml không tồn tại: {bd_path} — default values sẽ không khả dụng")
+        logger.warning(
+            f"bddefaults.xml không tồn tại: {bd_path} — "
+            f"default values sẽ không khả dụng. "
+            f"Configs vắng trong block XML sẽ không có fallback value."
+        )
         _defaults_cache[model_dir] = {}
         return {}
 
-    tree = etree.parse(str(bd_path))
-    root = tree.getroot()
+    try:
+        tree = etree.parse(str(bd_path))
+        root = tree.getroot()
+    except etree.XMLSyntaxError as e:
+        logger.error(
+            f"bddefaults.xml malformed: {bd_path} — {e}. "
+            f"Default values sẽ không khả dụng."
+        )
+        _defaults_cache[model_dir] = {}
+        return {}
 
     defaults: dict[str, dict[str, str]] = {}
 

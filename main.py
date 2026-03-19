@@ -79,7 +79,11 @@ def _resolve_args(args: argparse.Namespace) -> argparse.Namespace:
         if not input_path.exists():
             print(f"[ERROR] File không tồn tại (--input): {args.input}", file=sys.stderr)
             sys.exit(1)
-        input_data = json.loads(input_path.read_text(encoding="utf-8"))
+        try:
+            input_data = json.loads(input_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as e:
+            print(f"[ERROR] JSON không hợp lệ (--input): {args.input} — {e}", file=sys.stderr)
+            sys.exit(1)
 
         # Chỉ set nếu chưa có từ args riêng lẻ
         if not args.model:
@@ -97,7 +101,11 @@ def _resolve_args(args: argparse.Namespace) -> argparse.Namespace:
         if not validate_path.exists():
             print(f"[ERROR] File không tồn tại (--validate): {args.validate}", file=sys.stderr)
             sys.exit(1)
-        validate_data = json.loads(validate_path.read_text(encoding="utf-8"))
+        try:
+            validate_data = json.loads(validate_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as e:
+            print(f"[ERROR] JSON không hợp lệ (--validate): {args.validate} — {e}", file=sys.stderr)
+            sys.exit(1)
 
         if not args.expected:
             args.expected = validate_data.get("expected_results")

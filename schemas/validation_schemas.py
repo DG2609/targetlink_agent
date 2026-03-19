@@ -155,3 +155,14 @@ class ValidationResult(BaseModel):
         default="",
         examples=["generated_checks/check_rule_R001.py"],
     )
+    actual_details: Optional[dict] = Field(
+        default=None,
+        description=(
+            "Chi tiết pass/fail blocks từ stdout (nếu có). "
+            "Giúp Agent 5 biết CHÍNH XÁC blocks nào fail mà không cần re-discover"
+        ),
+        examples=[None, {
+            "pass_block_names": ["Gain1", "Gain2"],
+            "fail_block_names": ["Gain3"],
+        }],
+    )

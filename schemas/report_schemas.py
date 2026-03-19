@@ -14,13 +14,19 @@ from schemas.validation_schemas import ValidationStatus, ValidationResult
 
 class PipelineStep(BaseModel):
     """1 bước trong pipeline — tracking agent call + timing."""
-    agent_name: str
-    started_at: str = ""
-    finished_at: str = ""
-    duration_seconds: float = 0.0
-    status: str = "success"  # "success", "error", "skipped"
-    input_summary: str = ""
-    output_summary: str = ""
+    agent_name: str = Field(description="Tên agent, VD: 'Agent 0 (Rule Analyzer)'")
+    started_at: str = Field(default="", description="ISO timestamp bắt đầu")
+    finished_at: str = Field(default="", description="ISO timestamp kết thúc")
+    duration_seconds: float = Field(default=0.0, description="Thời gian chạy (seconds)")
+    status: str = Field(default="success", description="Trạng thái: 'success', 'error', 'skipped'")
+    input_summary: str = Field(default="", description="Tóm tắt input cho step")
+    output_summary: str = Field(default="", description="Tóm tắt output từ step")
+
+
+class TraceEntry(BaseModel):
+    """1 entry trong retry trace — agent nào chạy lần thứ mấy."""
+    agent: str = Field(description="Agent name: 'agent4' hoặc 'agent5'")
+    attempt: int = Field(description="Lần thứ mấy (1-based)")
 
 
 class RuleReport(BaseModel):
@@ -32,7 +38,7 @@ class RuleReport(BaseModel):
     expected: Optional[dict] = None
     generated_script: str = ""
     needs_human_review: bool = False
-    pipeline_trace: list[dict] = Field(default_factory=list)
+    pipeline_trace: list[TraceEntry] = Field(default_factory=list)
     pipeline_steps: list[PipelineStep] = Field(default_factory=list)
     rule_duration_seconds: float = 0.0
     error_detail: Optional[str] = None
@@ -42,7 +48,7 @@ class RuleReport(BaseModel):
         cls,
         rule_id: str,
         result: "ValidationResult",
-        trace: list[dict],
+        trace: list[TraceEntry],
     ) -> "RuleReport":
         is_pass = result.status == ValidationStatus.PASS
         is_failed = result.status in (

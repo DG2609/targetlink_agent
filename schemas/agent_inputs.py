@@ -114,12 +114,19 @@ class Agent2Input(BaseModel):
         examples=["R001", "R002", "R010"],
     )
     block_name_xml: str = Field(
-        description="BlockType trong XML, từ BlockMappingData.name_xml",
-        examples=["Gain", "Abs", "TL_Inport"],
+        default="",
+        description="Block identifier trong XML. Rỗng nếu rule không nói rõ block — Agent 2 dùng find_config_locations() để tự xác định",
+        examples=["Gain", "Abs", "TL_Inport", "Compare To Constant", ""],
     )
     block_name_ui: str = Field(
-        description="Tên UI, từ BlockMappingData.name_ui",
-        examples=["Gain", "Abs", "Inport"],
+        default="",
+        description="Tên UI, từ BlockMappingData.name_ui. Rỗng nếu config-only rule",
+        examples=["Gain", "Abs", "Inport", ""],
+    )
+    xml_representation: str = Field(
+        default="unknown",
+        description="Dạng block: native/reference/masked/unknown — từ BlockMappingData",
+        examples=["native", "reference", "masked", "unknown"],
     )
     config_name: str = Field(
         description="Tên config cần check",
@@ -158,9 +165,19 @@ class Agent2Input(BaseModel):
     )
 
     def to_prompt(self) -> str:
+        if self.block_name_xml:
+            block_line = (
+                f"block: name_xml={self.block_name_xml}, name_ui={self.block_name_ui}, "
+                f"xml_representation={self.xml_representation}"
+            )
+        else:
+            block_line = (
+                "block: KHÔNG XÁC ĐỊNH — rule chỉ nói về config, "
+                "dùng find_config_locations() và list_all_block_types() để tìm tất cả block types có config này"
+            )
         context = (
             f"rule_id: {self.rule_id}\n"
-            f"block: name_xml={self.block_name_xml}, name_ui={self.block_name_ui}\n"
+            f"{block_line}\n"
             f"config_name: {self.config_name}\n"
             f"condition: {self.condition}\n"
             f"expected_value: {self.expected_value}\n"
@@ -190,6 +207,7 @@ class Agent2Input(BaseModel):
             rule_id=rule.rule_id,
             block_name_xml=block_data.name_xml,
             block_name_ui=block_data.name_ui,
+            xml_representation=getattr(block_data, "xml_representation", "unknown"),
             config_name=parsed_rule.config_name,
             condition=str(parsed_rule.condition.value),
             expected_value=parsed_rule.expected_value,
@@ -227,6 +245,11 @@ class Agent4Input(BaseModel):
         >>> assert "check_rule_R001.py" in prompt
     """
 
+    rule_id: str = Field(
+        default="",
+        description="ID rule đang xử lý, VD: 'R001'",
+        examples=["R001", "R002"],
+    )
     code_file_path: str = Field(
         description="Path file Python bị lỗi",
         examples=["generated_checks/check_rule_R001.py"],
@@ -261,6 +284,7 @@ class Agent4Input(BaseModel):
 
     def to_prompt(self) -> str:
         context = (
+            f"Rule: {self.rule_id}\n"
             f"File bị lỗi: {self.code_file_path}\n"
             f"Test case fail: {self.failed_test_case}\n"
             f"Stderr:\n{self.stderr}\n"
@@ -292,6 +316,11 @@ class Agent5Input(BaseModel):
         >>> assert "total_blocks" in prompt
     """
 
+    rule_id: str = Field(
+        default="",
+        description="ID rule đang xử lý, VD: 'R001'",
+        examples=["R001", "R002"],
+    )
     code_file_path: str = Field(
         description="Path file Python cần điều tra",
         examples=["generated_checks/check_rule_R001.py"],
@@ -333,7 +362,7 @@ class Agent5Input(BaseModel):
     )
     status_value: str = Field(
         default="",
-        description="Validation status string (WRONG_RESULT, PARTIAL_PASS, CODE_ERROR)",
+        description="Validation status (ValidationStatus enum value)",
         examples=["WRONG_RESULT", "PARTIAL_PASS", "CODE_ERROR"],
     )
     test_cases_passed: int = Field(default=0, description="Số test cases đã pass")
@@ -382,6 +411,7 @@ class Agent5Input(BaseModel):
 
         # Core info
         parts.append(
+            f"Rule: {self.rule_id}\n"
             f"File code: {self.code_file_path}\n"
             f"Test case fail: {self.failed_test_case}\n"
             f"Actual result: {self.actual_result}\n"
@@ -451,6 +481,7 @@ class Agent5Input(BaseModel):
         """
         escalated = sm.agent4_count > 0 and validation.status.value == "CODE_ERROR"
         kwargs = dict(
+            rule_id=validation.rule_id,
             code_file_path=validation.code_file_path,
             failed_test_case=validation.failed_test_case or "N/A",
             actual_result=validation.actual_result,

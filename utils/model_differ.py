@@ -14,6 +14,7 @@ Giải quyết vấn đề: Agent 2 không cần đoán config nằm ở đâu t
 """
 
 import logging
+import re
 from pathlib import Path
 
 from lxml import etree
@@ -429,7 +430,8 @@ class ModelDiffer:
         """Tất cả blocks trong file chỉ có ở after → marked as added."""
         try:
             tree = etree.parse(str(Path(self.after_dir) / system_file))
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Không parse được {system_file} (after): {e}")
             return []
         result = []
         for block in tree.getroot().findall("Block"):
@@ -449,7 +451,8 @@ class ModelDiffer:
         """Tất cả blocks trong file chỉ có ở before → marked as removed."""
         try:
             tree = etree.parse(str(Path(self.before_dir) / system_file))
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Không parse được {system_file} (before): {e}")
             return []
         result = []
         for block in tree.getroot().findall("Block"):
@@ -641,7 +644,6 @@ def build_agent_context(
             # Generalize xpath: thay SID cụ thể bằng pattern
             xpath = item["xpath"]
             # .//Block[@SID='68']/P[...] → .//Block[@BlockType='Gain']/P[...]
-            import re
             xpath_general = re.sub(
                 r"@SID='[^']*'",
                 f"@BlockType='{item['block_type']}'",

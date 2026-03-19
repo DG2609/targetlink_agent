@@ -15,9 +15,12 @@ Agents sử dụng: Agent 2 (Code Generator), Agent 5 (Inspector)
 """
 
 import json
+import logging
 import re
 import threading
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 from lxml import etree
 from agno.tools import Toolkit
 
@@ -129,7 +132,8 @@ class XmlToolkit(Toolkit):
                 root = tree.getroot()
                 root_tag = root.tag
                 children_count = len(root)
-            except Exception:
+            except Exception as e:
+                logger.warning(f"list_xml_files: không parse {rel_path}: {e}")
                 root_tag = "PARSE_ERROR"
 
             results.append({
@@ -461,7 +465,7 @@ class XmlToolkit(Toolkit):
         results = self._model_index.query_config(block_type, config_name)
         if not results:
             return f"Không tìm thấy block nào type='{block_type}' trong model."
-        return (
+        return truncate_output(
             f"Config '{config_name}' trên {len(results)} {block_type} blocks:\n"
             + json.dumps(results, indent=2, ensure_ascii=False)
         )
@@ -483,7 +487,7 @@ class XmlToolkit(Toolkit):
         result = self._model_index.trace_connections(block_sid)
         if "error" in result:
             return result["error"]
-        return json.dumps(result, indent=2, ensure_ascii=False)
+        return truncate_output(json.dumps(result, indent=2, ensure_ascii=False))
 
     def auto_discover_blocks(self, block_keyword: str) -> str:
         """Tự scan toàn bộ model → tìm TẤT CẢ blocks matching keyword.
@@ -554,7 +558,8 @@ class XmlToolkit(Toolkit):
                     rel_path = str(xml_file.relative_to(Path(self.model_dir))).replace("\\", "/")
                     tree = self._get_tree(rel_path)
                     root = tree.getroot()
-                except Exception:
+                except Exception as e:
+                    logger.warning(f"find_config_locations: không parse {xml_file.name}: {e}")
                     continue
 
                 for block in root.findall("Block"):
@@ -633,7 +638,8 @@ class XmlToolkit(Toolkit):
                 rel_path = str(xml_file.relative_to(Path(self.model_dir))).replace("\\", "/")
                 tree = self._get_tree(rel_path)
                 root = tree.getroot()
-            except Exception:
+            except Exception as e:
+                logger.warning(f"list_all_block_types: không parse {xml_file.name}: {e}")
                 continue
 
             for block in root.findall("Block"):

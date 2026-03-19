@@ -7,6 +7,7 @@ Agents sử dụng:
   - Agent 5 (Inspector): rewrite_advanced_code
 """
 
+import ast
 import json
 import re
 import traceback
@@ -59,9 +60,19 @@ class CodeToolkit(Toolkit):
         """
         file_path = self._safe_path(filename)
 
+        # Syntax check trước khi ghi — bắt lỗi sớm, không chờ Agent 3
+        try:
+            ast.parse(code_content)
+        except SyntaxError as e:
+            return (
+                f"SYNTAX ERROR — code không hợp lệ, KHÔNG ghi file.\n"
+                f"  Line {e.lineno}: {e.msg}\n"
+                f"  {e.text.strip() if e.text else ''}\n"
+                f"Sửa lỗi syntax rồi gọi lại write_python_file()."
+            )
+
         try:
             file_path.write_text(code_content, encoding="utf-8")
-            # Verify đọc lại
             line_count = len(code_content.splitlines())
             return f"Đã ghi file thành công: {file_path.resolve()} ({line_count} dòng)"
         except OSError as e:
@@ -177,6 +188,17 @@ class CodeToolkit(Toolkit):
         if not file_path.exists():
             return f"File không tồn tại: {file_path}. Dùng write_python_file để tạo mới."
 
+        # Syntax check trước khi ghi — bắt lỗi sớm
+        try:
+            ast.parse(new_code_content)
+        except SyntaxError as e:
+            return (
+                f"SYNTAX ERROR — code không hợp lệ, KHÔNG patch file.\n"
+                f"  Line {e.lineno}: {e.msg}\n"
+                f"  {e.text.strip() if e.text else ''}\n"
+                f"Sửa lỗi syntax rồi gọi lại patch_python_file()."
+            )
+
         try:
             old_content = file_path.read_text(encoding="utf-8")
             old_lines = len(old_content.splitlines())
@@ -211,6 +233,17 @@ class CodeToolkit(Toolkit):
             Thông báo thành công kèm đường dẫn và lý do.
         """
         file_path = self._safe_path(filename)
+
+        # Syntax check trước khi ghi — bắt lỗi sớm
+        try:
+            ast.parse(new_code_content)
+        except SyntaxError as e:
+            return (
+                f"SYNTAX ERROR — code không hợp lệ, KHÔNG rewrite file.\n"
+                f"  Line {e.lineno}: {e.msg}\n"
+                f"  {e.text.strip() if e.text else ''}\n"
+                f"Sửa lỗi syntax rồi gọi lại rewrite_advanced_code()."
+            )
 
         try:
             file_path.write_text(new_code_content, encoding="utf-8")

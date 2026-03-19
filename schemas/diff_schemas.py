@@ -70,6 +70,7 @@ class ConfigDiscovery(BaseModel):
     mask_type: str = Field(default="", description="MaskType nếu là TL block, VD: 'TL_Gain'")
     config_name: str = Field(description="Tên config cần check, VD: 'SaturateOnIntegerOverflow'")
     location_type: str = Field(
+        default="",
         description=(
             "Config nằm ở đâu trong XML block element: "
             "'direct_P' (thẻ <P> trực tiếp) | "

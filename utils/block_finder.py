@@ -39,13 +39,21 @@ def find_blocks(root: etree._Element, block_identifier: str) -> list[etree._Elem
         List các <Block> elements tìm thấy (không trùng SID).
     """
     seen_sids: set[str] = set()
+    seen_ids: set[int] = set()  # fallback dedup by object id when SID is empty
     results: list[etree._Element] = []
 
     def _add(block: etree._Element) -> None:
         sid = block.get("SID", "")
-        if sid and sid in seen_sids:
-            return
-        seen_sids.add(sid)
+        if sid:
+            if sid in seen_sids:
+                return
+            seen_sids.add(sid)
+        else:
+            # Blocks without SID: dedup by object identity
+            obj_id = id(block)
+            if obj_id in seen_ids:
+                return
+            seen_ids.add(obj_id)
         results.append(block)
 
     # 1. Native BlockType match
@@ -179,17 +187,18 @@ def get_block_config(
     config_name: str,
     default_value: str | None = None,
 ) -> str | None:
-    """Đọc config value từ block — check cả 3 vị trí.
+    """Đọc config value từ block — check cả 4 vị trí.
 
     Thứ tự tìm:
       1. Direct <P Name="config_name"> (child trực tiếp của Block)
       2. <InstanceData>/<P Name="config_name"> (Reference blocks)
-      3. Fallback về default_value nếu không tìm thấy
+      3. MaskValueString (pipe-separated, match by MaskNames index)
+      4. Fallback về default_value nếu không tìm thấy
 
     Args:
         block: <Block> element.
         config_name: Tên config cần đọc. VD: "SaturateOnIntegerOverflow"
-        default_value: Giá trị trả về nếu không tìm thấy ở cả 2 nơi.
+        default_value: Giá trị trả về nếu không tìm thấy.
 
     Returns:
         Config value (str) hoặc default_value nếu không tìm thấy.
@@ -206,5 +215,17 @@ def get_block_config(
         if node is not None and node.text is not None:
             return node.text.strip()
 
-    # 3. Fallback
+    # 3. MaskValueString (pipe-separated values keyed by MaskNames)
+    mask_names_node = block.find("P[@Name='MaskNames']")
+    mask_values_node = block.find("P[@Name='MaskValueString']")
+    if mask_names_node is not None and mask_values_node is not None:
+        names_text = mask_names_node.text or ""
+        values_text = mask_values_node.text or ""
+        names = names_text.split("|")
+        values = values_text.split("|")
+        for i, name in enumerate(names):
+            if name.strip() == config_name and i < len(values):
+                return values[i].strip()
+
+    # 4. Fallback
     return default_value
