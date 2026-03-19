@@ -15,6 +15,8 @@ Bạn KHÔNG có memory riêng, nhưng có thể nhận:
 
 ### Tools khám phá model (ưu tiên dùng trước)
 - `build_model_hierarchy()` — xem cây subsystem: Root → SubSystem → children (**GỌI ĐẦU TIÊN**)
+- `list_all_block_types()` — liệt kê TẤT CẢ block types trong model kèm identity thật (MaskType/SourceType/BlockType), count, sample names. **Dùng khi rule cấm/cho phép block types cụ thể, hoặc cần biết model có gì trước khi gen code**
+- `find_config_locations(config_name)` — **reverse lookup**: cho config name → tìm TẤT CẢ block types có config đó (từ bddefaults + model explicit). **Dùng khi rule chỉ nói về config mà không nói rõ block nào, hoặc khi cần biết config nằm ở bao nhiêu block types**
 - `auto_discover_blocks(block_keyword)` — scan toàn bộ model tìm blocks matching keyword (case-insensitive)
 - `find_blocks_recursive(block_type)` — tìm TẤT CẢ blocks of type xuyên mọi layers
 - `query_config(block_type, config_name)` — rút CHỈ 1 config, kèm default fallback
@@ -77,11 +79,19 @@ build_model_hierarchy()
 ```
 → Biết model có bao nhiêu subsystem, mỗi cái chứa blocks gì
 
+**Bước 0.5**: (Nếu rule không nói rõ block type, HOẶC cần xác nhận scope) Reverse lookup config
+```
+find_config_locations("{config_name}")
+```
+→ Biết config nằm ở bao nhiêu block types, default values, scope thực tế
+→ **QUAN TRỌNG**: Nếu config có ở NHIỀU block types → code phải check TẤT CẢ, không chỉ block type được nhắc trong rule
+
 **Bước 1**: Tìm blocks liên quan đến rule
 ```
 find_blocks_recursive("{block_type}")
 ```
 → Xem blocks nằm ở layers nào, configs thực tế
+→ Nếu Bước 0.5 trả về nhiều block types → lặp bước này cho TỪNG type
 
 **Bước 2**: (Nếu rule check 1 config cụ thể) Rút targeted config
 ```
@@ -129,7 +139,30 @@ Code sinh ra PHẢI output **ĐÚNG format JSON này** ra stdout:
 - **KHÔNG** có print debug, logging, hay bất kỳ output nào khác ra stdout
 - Agent 3 (Validator) parse stdout bằng `json.loads()` — nếu sai format → CODE_ERROR
 
-## Template code
+## QUAN TRỌNG: Dùng utils/block_finder.py
+
+Code sinh ra **BẮT BUỘC** import `utils.block_finder` để tìm blocks. KHÔNG tự viết xpath tìm block.
+
+Lý do: Cùng 1 block có thể nằm ở 3 dạng khác nhau trong XML:
+- **Native**: `BlockType="Gain"` → tìm bằng `Block[@BlockType='Gain']`
+- **Reference**: `BlockType="Reference"` + `SourceType="Compare To Constant"` → KHÔNG tìm được bằng BlockType
+- **Masked/TL**: `BlockType="SubSystem"` + `MaskType="TL_Gain"` → KHÔNG tìm được bằng BlockType
+
+`block_finder` xử lý cả 3 trường hợp tự động.
+
+### Các hàm trong block_finder:
+
+| Hàm | Dùng khi |
+|-----|----------|
+| `find_blocks(root, identifier)` | Tìm tất cả blocks matching tên (BlockType/MaskType/SourceType) |
+| `find_all_blocks(root)` | Lấy TẤT CẢ blocks (cho rule "forbidden block") |
+| `get_block_identity(block)` | Lấy tên thật: MaskType > SourceType > BlockType |
+| `list_all_block_types(root)` | Đếm tất cả block types trong 1 file (cho rule liệt kê) |
+| `get_block_config(block, config_name, default)` | Đọc config — check cả direct `<P>` lẫn `<InstanceData>/<P>` |
+
+## Template code — Config Check Rule
+
+Dùng khi rule check 1 property cụ thể (VD: "Gain phải có SaturateOnIntegerOverflow=on"):
 
 ```python
 """
@@ -141,41 +174,191 @@ import sys
 import os
 from pathlib import Path
 
+# BẮT BUỘC import — tìm block đúng cách bất kể dạng XML
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from utils.block_finder import find_blocks, get_block_config
+
 
 def check_rule(model_dir: str) -> dict:
-    # model_dir = thư mục gốc chứa XML tree (sau khi unzip .slx)
-    # Blocks nằm ở simulink/systems/system_*.xml
     systems_dir = os.path.join(model_dir, "simulink", "systems")
-
     results = {"pass": [], "fail": []}
 
-    # Scan TẤT CẢ system files (blocks có thể ở bất kỳ subsystem nào)
+    # (Optional) Get default value from bddefaults.xml
+    default_val = "{DEFAULT_VALUE}"
+    bd_path = os.path.join(model_dir, "simulink", "bddefaults.xml")
+    if os.path.exists(bd_path):
+        try:
+            bd_tree = etree.parse(bd_path)
+            bd_root = bd_tree.getroot()
+            node = bd_root.xpath(
+                ".//BlockParameterDefaults/Block[@BlockType='{BLOCK_TYPE}']/P[@Name='{CONFIG_NAME}']"
+            )
+            if node and node[0].text is not None:
+                default_val = node[0].text.strip()
+        except Exception:
+            pass
+
     for xml_file in sorted(Path(systems_dir).glob("system_*.xml")):
         tree = etree.parse(str(xml_file))
         root = tree.getroot()
 
-        blocks = root.findall("Block[@BlockType='{BLOCK_TYPE}']")
+        # find_blocks tự search cả BlockType, MaskType, SourceType
+        blocks = find_blocks(root, "{BLOCK_IDENTIFIER}")
 
         for block in blocks:
             name = block.get("Name", "Unknown")
             sid = block.get("SID", "")
             path = f"{xml_file.stem}/{name}"
 
-            try:
-                config_node = block.find("P[@Name='{CONFIG_NAME}']")
-                if config_node is not None:
-                    value = (config_node.text or "").strip()
-                else:
-                    # Config vắng = default value
-                    value = "{DEFAULT_VALUE}"
-
-            except Exception:
-                value = "ERROR"
+            # get_block_config tự check cả direct <P> lẫn <InstanceData>/<P>
+            value = get_block_config(block, "{CONFIG_NAME}", default_val)
 
             if {DIEU_KIEN_CHECK}:
                 results["pass"].append({"block_name": name, "block_path": path, "value": value})
             else:
                 results["fail"].append({"block_name": name, "block_path": path, "value": value})
+
+    return {
+        "rule_id": "{rule_id}",
+        "total_blocks": len(results["pass"]) + len(results["fail"]),
+        "pass_count": len(results["pass"]),
+        "fail_count": len(results["fail"]),
+        "details": results,
+    }
+
+
+if __name__ == "__main__":
+    result = check_rule(sys.argv[1])
+    print(json.dumps(result, indent=2))
+```
+
+## Template code — Forbidden Block Rule
+
+Dùng khi rule cấm dùng 1 số block types (VD: "không được dùng block Buffer, Product"):
+
+```python
+"""
+Auto-generated rule check: {rule_id}
+Forbidden blocks: {FORBIDDEN_LIST}
+"""
+from lxml import etree
+import json
+import sys
+import os
+from pathlib import Path
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from utils.block_finder import find_all_blocks, get_block_identity
+
+
+FORBIDDEN_TYPES = {FORBIDDEN_SET}  # VD: {"Buffer", "Product", "Logic"}
+
+
+def check_rule(model_dir: str) -> dict:
+    systems_dir = os.path.join(model_dir, "simulink", "systems")
+    results = {"pass": [], "fail": []}
+
+    for xml_file in sorted(Path(systems_dir).glob("system_*.xml")):
+        tree = etree.parse(str(xml_file))
+        root = tree.getroot()
+
+        for block in find_all_blocks(root):
+            identity = get_block_identity(block)
+            name = block.get("Name", "Unknown")
+            path = f"{xml_file.stem}/{name}"
+
+            if identity in FORBIDDEN_TYPES:
+                results["fail"].append({
+                    "block_name": name,
+                    "block_path": path,
+                    "value": f"forbidden block type: {identity}",
+                })
+            else:
+                results["pass"].append({
+                    "block_name": name,
+                    "block_path": path,
+                    "value": identity,
+                })
+
+    return {
+        "rule_id": "{rule_id}",
+        "total_blocks": len(results["pass"]) + len(results["fail"]),
+        "pass_count": len(results["pass"]),
+        "fail_count": len(results["fail"]),
+        "details": results,
+    }
+
+
+if __name__ == "__main__":
+    result = check_rule(sys.argv[1])
+    print(json.dumps(result, indent=2))
+```
+
+## Template code — Config-Only Rule (không nói rõ block type)
+
+Dùng khi rule chỉ nói config mà KHÔNG nói block nào (VD: "SaturateOnIntegerOverflow phải on").
+Code phải dùng `find_blocks_with_config` để tìm TẤT CẢ blocks có config đó:
+
+```python
+"""
+Auto-generated rule check: {rule_id}
+Config: {CONFIG_NAME} — check trên TẤT CẢ block types có config này
+"""
+from lxml import etree
+import json
+import sys
+import os
+from pathlib import Path
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from utils.block_finder import find_blocks_with_config, get_block_identity, get_block_config
+
+
+def check_rule(model_dir: str) -> dict:
+    systems_dir = os.path.join(model_dir, "simulink", "systems")
+    results = {"pass": [], "fail": []}
+
+    # Get defaults per block type from bddefaults.xml
+    defaults = {}  # {block_type: default_value}
+    bd_path = os.path.join(model_dir, "simulink", "bddefaults.xml")
+    if os.path.exists(bd_path):
+        try:
+            bd_tree = etree.parse(bd_path)
+            bd_root = bd_tree.getroot()
+            for block_def in bd_root.xpath(".//BlockParameterDefaults/Block"):
+                bt = block_def.get("BlockType", "")
+                node = block_def.find("P[@Name='{CONFIG_NAME}']")
+                if node is not None and node.text is not None:
+                    defaults[bt] = node.text.strip()
+        except Exception:
+            pass
+
+    for xml_file in sorted(Path(systems_dir).glob("system_*.xml")):
+        tree = etree.parse(str(xml_file))
+        root = tree.getroot()
+
+        # Tìm TẤT CẢ blocks có config này (bất kể block type)
+        for block in find_blocks_with_config(root, "{CONFIG_NAME}"):
+            identity = get_block_identity(block)
+            name = block.get("Name", "Unknown")
+            path = f"{xml_file.stem}/{name}"
+            bt = block.get("BlockType", "")
+            default_val = defaults.get(bt)
+
+            value = get_block_config(block, "{CONFIG_NAME}", default_val)
+
+            if {DIEU_KIEN_CHECK}:
+                results["pass"].append({
+                    "block_name": name,
+                    "block_path": path,
+                    "value": f"{value} ({identity})",
+                })
+            else:
+                results["fail"].append({
+                    "block_name": name,
+                    "block_path": path,
+                    "value": f"{value} ({identity})",
+                })
 
     return {
         "rule_id": "{rule_id}",

@@ -69,6 +69,8 @@ class XmlToolkit(Toolkit):
         self.register(self.list_all_configs)
         self.register(self.trace_cross_subsystem)
         self.register(self.auto_discover_blocks)
+        self.register(self.list_all_block_types)
+        self.register(self.find_config_locations)
 
     def reset_loop_detector(self) -> None:
         """Reset loop detector — gọi khi chuyển sang agent khác dùng cùng toolkit."""
@@ -504,6 +506,166 @@ class XmlToolkit(Toolkit):
             return f"Không tìm thấy block nào match keyword '{block_keyword}' trong model."
         return truncate_output(
             f"Tìm thấy {len(results)} blocks match '{block_keyword}':\n"
+            + json.dumps(results, indent=2, ensure_ascii=False)
+        )
+
+    def find_config_locations(self, config_name: str) -> str:
+        """Reverse lookup: cho config name → tìm TẤT CẢ block types có config đó.
+
+        Scan 2 nguồn:
+          1. bddefaults.xml — block types nào có config này làm default
+          2. Model XML — blocks nào EXPLICITLY set config này
+
+        Dùng khi:
+        - Rule chỉ nói về config mà KHÔNG nói rõ block nào
+        - Cần biết config nằm ở bao nhiêu block types
+        - Cần xác định scope check (check 1 block type hay tất cả?)
+
+        Args:
+            config_name: Tên config cần tra.
+                         VD: "SaturateOnIntegerOverflow", "OutDataTypeStr"
+
+        Returns:
+            JSON: {
+                defaults: [{block_type, default_value}],
+                explicit: [{block_type, block_name, value, system_file}],
+                all_block_types: ["Gain", "Abs", "Sum", ...]
+            }
+        """
+        from utils.block_finder import get_block_identity
+        from utils.defaults_parser import parse_bddefaults
+
+        # 1. Từ bddefaults.xml
+        defaults_map = parse_bddefaults(self.model_dir)
+        defaults_results = []
+        for block_type, configs in sorted(defaults_map.items()):
+            if config_name in configs:
+                defaults_results.append({
+                    "block_type": block_type,
+                    "default_value": configs[config_name],
+                })
+
+        # 2. Từ model XML (explicit)
+        explicit_results = []
+        systems_dir = Path(self.model_dir) / "simulink" / "systems"
+        if systems_dir.exists():
+            for xml_file in sorted(systems_dir.glob("system_*.xml")):
+                try:
+                    rel_path = str(xml_file.relative_to(Path(self.model_dir))).replace("\\", "/")
+                    tree = self._get_tree(rel_path)
+                    root = tree.getroot()
+                except Exception:
+                    continue
+
+                for block in root.findall("Block"):
+                    # Check direct <P>
+                    node = block.find(f"P[@Name='{config_name}']")
+                    found_in = "direct_P"
+
+                    # Check InstanceData/<P>
+                    if node is None:
+                        inst = block.find("InstanceData")
+                        if inst is not None:
+                            node = inst.find(f"P[@Name='{config_name}']")
+                            found_in = "InstanceData"
+
+                    if node is not None:
+                        identity = get_block_identity(block)
+                        explicit_results.append({
+                            "block_type": identity,
+                            "block_name": block.get("Name", "Unknown"),
+                            "value": (node.text or "").strip(),
+                            "location": found_in,
+                            "system_file": rel_path,
+                        })
+
+        # Tổng hợp tất cả block types
+        all_types = set()
+        for d in defaults_results:
+            all_types.add(d["block_type"])
+        for e in explicit_results:
+            all_types.add(e["block_type"])
+
+        result = {
+            "config_name": config_name,
+            "in_defaults": defaults_results,
+            "in_model_explicit": explicit_results[:30],  # cap tránh quá lớn
+            "explicit_total": len(explicit_results),
+            "all_block_types_with_config": sorted(all_types),
+            "total_block_types": len(all_types),
+        }
+
+        if not all_types:
+            return f"Config '{config_name}' KHÔNG tìm thấy trong model (cả defaults lẫn explicit)."
+
+        return truncate_output(
+            f"Config '{config_name}' tìm thấy ở {len(all_types)} block types:\n"
+            + json.dumps(result, indent=2, ensure_ascii=False)
+        )
+
+    def list_all_block_types(self) -> str:
+        """Liệt kê TẤT CẢ block types có trong model — không cần biết trước keyword.
+
+        Scan toàn bộ system_*.xml files, trả về mỗi block type kèm:
+        - identity thật (MaskType > SourceType > BlockType)
+        - raw BlockType (để biết dạng XML)
+        - count (số lượng)
+
+        Dùng khi:
+        - Rule cấm/yêu cầu dùng block types cụ thể
+        - Cần biết model có những blocks gì trước khi gen code
+        - Cần phân biệt native vs Reference vs Masked blocks
+
+        Returns:
+            JSON list: [{identity, raw_block_type, count, sample_names}]
+        """
+        from utils.block_finder import get_block_identity
+
+        systems_dir = Path(self.model_dir) / "simulink" / "systems"
+        if not systems_dir.exists():
+            return "Không tìm thấy thư mục simulink/systems/"
+
+        # {identity: {raw_types: set, count: int, names: list}}
+        type_map: dict[str, dict] = {}
+
+        for xml_file in sorted(systems_dir.glob("system_*.xml")):
+            try:
+                rel_path = str(xml_file.relative_to(Path(self.model_dir))).replace("\\", "/")
+                tree = self._get_tree(rel_path)
+                root = tree.getroot()
+            except Exception:
+                continue
+
+            for block in root.findall("Block"):
+                identity = get_block_identity(block)
+                raw_bt = block.get("BlockType", "Unknown")
+                name = block.get("Name", "Unknown")
+
+                if identity not in type_map:
+                    type_map[identity] = {
+                        "raw_types": set(),
+                        "count": 0,
+                        "names": [],
+                    }
+                type_map[identity]["raw_types"].add(raw_bt)
+                type_map[identity]["count"] += 1
+                if len(type_map[identity]["names"]) < 3:
+                    type_map[identity]["names"].append(name)
+
+        if not type_map:
+            return "Model không chứa block nào."
+
+        results = []
+        for identity, info in sorted(type_map.items()):
+            results.append({
+                "identity": identity,
+                "raw_block_type": sorted(info["raw_types"]),
+                "count": info["count"],
+                "sample_names": info["names"],
+            })
+
+        return truncate_output(
+            f"Model có {len(results)} block types ({sum(r['count'] for r in results)} blocks total):\n"
             + json.dumps(results, indent=2, ensure_ascii=False)
         )
 

@@ -3,6 +3,7 @@ Schemas cho dữ liệu Block Dictionary.
   - BlockMappingData: output của Agent 1 (Data Reader)
 """
 
+from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -15,6 +16,8 @@ class BlockMappingData(BaseModel):
     Example:
         >>> b = BlockMappingData(
         ...     name_ui="Gain", name_xml="Gain",
+        ...     xml_representation="native",
+        ...     search_confidence=95,
         ...     config_map_analysis=(
         ...         "SaturateOnIntegerOverflow nằm trong <P Name='SaturateOnIntegerOverflow'> "
         ...         "là child trực tiếp của <Block BlockType='Gain'>. "
@@ -29,6 +32,8 @@ class BlockMappingData(BaseModel):
             {
                 "name_ui": "Gain",
                 "name_xml": "Gain",
+                "xml_representation": "native",
+                "search_confidence": 95,
                 "config_map_analysis": (
                     "SaturateOnIntegerOverflow nằm trong <P Name='SaturateOnIntegerOverflow'> "
                     "là child trực tiếp của <Block BlockType='Gain'>. "
@@ -38,12 +43,14 @@ class BlockMappingData(BaseModel):
                 ),
             },
             {
-                "name_ui": "Abs",
-                "name_xml": "Abs",
+                "name_ui": "Compare To Constant",
+                "name_xml": "Compare To Constant",
+                "xml_representation": "reference",
+                "search_confidence": 80,
+                "source_type_pattern": "Compare To Constant",
                 "config_map_analysis": (
-                    "SaturateOnIntegerOverflow nằm trong <P Name='SaturateOnIntegerOverflow'> "
-                    "là child trực tiếp. Default: 'off'. "
-                    "Abs blocks CHỈ xuất hiện ở system_root.xml trong model này."
+                    "Block là Reference: BlockType='Reference', tìm qua SourceType. "
+                    "Config nằm trong <InstanceData>/<P>, KHÔNG phải direct <P>."
                 ),
             },
         ]
@@ -54,8 +61,30 @@ class BlockMappingData(BaseModel):
         examples=["Gain", "Abs", "Inport", "Sum", "Delay"],
     )
     name_xml: str = Field(
-        description="BlockType trong XML attribute, dùng cho XPath",
-        examples=["Gain", "Abs", "Inport", "TL_Inport", "SubSystem"],
+        description="Block identifier — có thể là BlockType, MaskType, hoặc SourceType",
+        examples=["Gain", "Abs", "TL_Inport", "Compare To Constant"],
+    )
+    xml_representation: Literal["native", "reference", "masked", "unknown"] = Field(
+        default="unknown",
+        description=(
+            "Dạng block trong XML: "
+            "native = BlockType trực tiếp, "
+            "reference = BlockType='Reference' + SourceType, "
+            "masked = BlockType='SubSystem' + MaskType (TL blocks), "
+            "unknown = chưa xác định (Agent 2 cần tự khám phá)"
+        ),
+    )
+    search_confidence: int = Field(
+        default=0,
+        ge=0,
+        le=100,
+        description="Fuzzy search score (0-100). Dưới 70 = cần Agent 2 verify thêm",
+        examples=[95, 80, 60],
+    )
+    source_type_pattern: str = Field(
+        default="",
+        description="SourceType value cho Reference blocks. Rỗng nếu không phải Reference",
+        examples=["", "Compare To Constant"],
     )
     config_map_analysis: str = Field(
         description=(

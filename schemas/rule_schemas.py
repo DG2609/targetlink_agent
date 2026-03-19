@@ -138,8 +138,9 @@ class ParsedRule(BaseModel):
 
     rule_id: str = ""        # Pipeline gán sau, LLM không biết rule_id
     block_keyword: str = Field(
-        description="Keyword tìm block, lowercase",
-        examples=["gain", "inport", "abs", "sum"],
+        default="",
+        description="Keyword tìm block, lowercase. Rỗng nếu rule không nói rõ block type — Agent 2 sẽ dùng find_config_locations() để tự xác định",
+        examples=["gain", "inport", "abs", "sum", ""],
     )
     rule_alias: str = Field(
         description="Tên gốc của block trong rule text",
