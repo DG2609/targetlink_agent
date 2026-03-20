@@ -47,13 +47,15 @@ class XmlToolkit(Toolkit):
         self,
         model_dir: str,
         shared_cache: dict[str, etree._ElementTree] | None = None,
+        shared_lock: "threading.Lock | None" = None,
     ):
         super().__init__(name="xml_tools")
         self.model_dir = model_dir
         self._tree_cache: dict[str, etree._ElementTree] = (
             shared_cache if shared_cache is not None else {}
         )
-        self._cache_lock = threading.Lock()
+        # Use shared lock when multiple XmlToolkit instances share the same cache
+        self._cache_lock = shared_lock or threading.Lock()
         self._loop_detector = LoopDetector(max_repeats=3)
         self._model_index = ModelIndex(
             model_dir=model_dir, xml_cache=self._tree_cache,

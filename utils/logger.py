@@ -17,10 +17,10 @@ def setup_logger(log_level: str = "INFO", log_file: str | None = None) -> None:
     fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     datefmt = "%H:%M:%S"
 
-    # Force UTF-8 trên Windows (tránh UnicodeEncodeError với tiếng Việt)
-    stream = open(sys.stdout.fileno(), mode="w", encoding="utf-8", closefd=False)
+    # Use sys.stdout directly — main.py already wraps it with UTF-8 TextIOWrapper.
+    # Creating a second wrapper on the same buffer causes interleaved output.
     handlers: list[logging.Handler] = [
-        logging.StreamHandler(stream)
+        logging.StreamHandler(sys.stdout)
     ]
 
     if log_file:
