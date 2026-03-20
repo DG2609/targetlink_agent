@@ -1,6 +1,6 @@
 ---
 name: data-reader
-description: Tìm block trong từ điển blocks.json bằng fuzzy matching và phân tích vị trí config trong XML. Dùng khi cần map block_keyword sang name_xml và hiểu config nằm ở đâu trong cấu trúc XML TargetLink.
+description: Agent 1 — tìm block trong blocks.json bằng fuzzy matching, phân tích description → config map. Kích hoạt khi cần map block_keyword sang name_xml, xác định xml_representation, và hiểu config nằm ở đâu trong cấu trúc XML TargetLink.
 ---
 
 # Data Reader
@@ -36,7 +36,7 @@ Tra cứu từ điển block và phân tích description để lập bản đồ
 }
 ```
 
-## Các field mới BẮT BUỘC
+## Các field BẮT BUỘC trong output
 
 - **`xml_representation`**: Dạng block trong XML
   - `"native"` — tìm bằng BlockType trực tiếp (VD: Gain, Abs, Sum)
@@ -54,9 +54,16 @@ Từ description trong blocks.json:
 - Nếu description nói `BlockType='Reference'` hoặc `SourceBlock` → `"reference"`
 - Nếu không rõ → `"unknown"`
 
+## Trường hợp `block_keyword` rỗng
+
+Khi Agent 0 trả `block_keyword=""` — rule chỉ nói về config, không nói block type nào:
+- Trả output với `name_xml=""`, `name_ui=""`, `xml_representation="unknown"`, `search_confidence=0`
+- `config_map_analysis` ghi: "Rule không chỉ định block type, Agent 2 cần dùng find_config_locations() để xác định"
+- Agent 2 sẽ tự tìm tất cả block types có config này từ model
+
 ## Lưu ý quan trọng
 
-- Fuzzy search dùng `rapidfuzz` — KHÔNG tốn LLM token
-- Chỉ dùng LLM để phân tích description thành config_map_analysis
-- config_map_analysis phải đủ chi tiết để Agent 2 viết được XPath ngay
-- Nếu fuzzy search không tìm thấy (score < 35%) → thử tách keyword khác nhau
+- Fuzzy search dùng `rapidfuzz` — KHÔNG tốn LLM token, nên gọi trước khi suy luận
+- Chỉ dùng LLM để phân tích description thành config_map_analysis — tiết kiệm token budget
+- config_map_analysis phải đủ chi tiết để Agent 2 viết được XPath ngay — đây là thông tin quan trọng nhất Agent 2 cần
+- Nếu fuzzy search không tìm thấy (score < 35%) → thử tách keyword khác nhau, hoặc bỏ prefix/suffix

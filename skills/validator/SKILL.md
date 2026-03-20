@@ -1,6 +1,6 @@
 ---
 name: validator
-description: Agent 3 — pure Python, không LLM. Chạy generated code trên từng test case model (subprocess), so sánh stdout JSON với expected result. Trả về PASS, CODE_ERROR, hoặc WRONG_RESULT.
+description: Agent 3 — pure Python, không LLM. Static check → subprocess chạy generated code trên từng test case model → so sánh stdout JSON với expected. Trả về PASS, PARTIAL_PASS, CODE_ERROR, hoặc WRONG_RESULT. Route đến Agent 4/5 khi fail.
 ---
 
 # Validator
@@ -37,12 +37,17 @@ for each test_case in rule.test_cases:
 | stdout | stdout từ test case fail đầu tiên (nếu có) |
 | stderr | stderr từ test case fail (nếu có) |
 | actual_result | dict {total_blocks, pass_count, fail_count} |
-| expected_result | dict {total_blocks, pass, fail} |
+| expected_result | dict {total_blocks, pass_count, fail_count} |
+| actual_details | dict {pass_block_names: [...], fail_block_names: [...]} — tên cụ thể từng block pass/fail |
 | failed_test_case | model_path của test case fail đầu tiên |
 | test_cases_passed | tổng số test case đã pass |
 | test_cases_total | tổng số test case |
 
 ## Bảng quyết định routing
+
+Routing phân tách rõ 2 loại lỗi vì cách fix hoàn toàn khác nhau:
+- **CODE_ERROR** = code crash/syntax → Agent 4 (Bug Fixer) fix mà KHÔNG đổi logic
+- **WRONG_RESULT / PARTIAL_PASS** = logic sai → Agent 5 (Inspector) khám phá lại model rồi viết lại
 
 | status | Hành động | Agent tiếp theo |
 |--------|----------|-----------------|

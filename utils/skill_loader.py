@@ -7,20 +7,29 @@ SKILL.md format (theo Anthropic Agent Skills):
   description: ...
   ---
   # Body content
+
+Optional: references/ subdirectory chứa .md files bổ sung.
+  Khi include_references=True, nội dung references/ được auto-append vào body.
 """
 
 from pathlib import Path
 
 
-def load_skill(skill_name: str, skills_dir: str = "skills") -> list[str]:
+def load_skill(
+    skill_name: str,
+    skills_dir: str = "skills",
+    include_references: bool = False,
+) -> list[str]:
     """Đọc SKILL.md và trả về nội dung body làm instructions cho Agent.
 
     Args:
         skill_name: Tên thư mục skill (VD: "rule-analyzer", "code-generator")
         skills_dir: Thư mục gốc chứa tất cả skills
+        include_references: Nếu True, auto-append nội dung từ references/*.md
+                            vào cuối body. Thứ tự: alphabetical by filename.
 
     Returns:
-        List[str] — mỗi dòng body content là 1 instruction string
+        List[str] — body content (1 phần tử duy nhất)
 
     Raises:
         FileNotFoundError: Nếu SKILL.md không tồn tại
@@ -34,6 +43,14 @@ def load_skill(skill_name: str, skills_dir: str = "skills") -> list[str]:
 
     # Tách frontmatter (giữa 2 dấu ---) khỏi body
     body = _strip_frontmatter(content)
+
+    # Auto-append references nếu được yêu cầu
+    if include_references:
+        refs_dir = skill_path.parent / "references"
+        if refs_dir.exists():
+            for ref_file in sorted(refs_dir.glob("*.md")):
+                ref_content = ref_file.read_text(encoding="utf-8")
+                body += f"\n\n---\n\n# Reference: {ref_file.stem}\n\n{ref_content}"
 
     # Trả về toàn bộ body (giữ dòng trống để bảo toàn format code template)
     return [body]
@@ -58,6 +75,43 @@ def load_skill_description(skill_name: str, skills_dir: str = "skills") -> str:
             return line.split("description:", 1)[1].strip()
 
     return ""
+
+
+def list_skill_references(skill_name: str, skills_dir: str = "skills") -> list[str]:
+    """Liệt kê tất cả reference files có trong skill.
+
+    Returns:
+        List tên files (VD: ["patterns.md", "templates.md"]).
+        Rỗng nếu không có references/.
+    """
+    refs_dir = Path(skills_dir) / skill_name / "references"
+    if not refs_dir.exists():
+        return []
+    return sorted(f.name for f in refs_dir.glob("*.md"))
+
+
+def load_skill_reference(
+    skill_name: str,
+    ref_name: str,
+    skills_dir: str = "skills",
+) -> str:
+    """Đọc 1 reference file cụ thể từ skill.
+
+    Args:
+        skill_name: Tên skill (VD: "code-generator")
+        ref_name: Tên file reference (VD: "templates.md")
+        skills_dir: Thư mục gốc
+
+    Returns:
+        Nội dung file reference.
+
+    Raises:
+        FileNotFoundError: Nếu file không tồn tại.
+    """
+    ref_path = Path(skills_dir) / skill_name / "references" / ref_name
+    if not ref_path.exists():
+        raise FileNotFoundError(f"Reference không tìm thấy: {ref_path}")
+    return ref_path.read_text(encoding="utf-8")
 
 
 def _strip_frontmatter(content: str) -> str:

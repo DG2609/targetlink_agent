@@ -13,6 +13,7 @@ from pathlib import Path
 
 from schemas.validation_schemas import TestCase, ValidationResult, ValidationStatus
 from utils.slx_extractor import extract_slx
+from config import settings
 
 # Patterns nguy hiểm không được phép trong generated code
 _DANGEROUS_PATTERNS = [
@@ -220,8 +221,8 @@ class Validator:
             )
             return {
                 "exit_code": result.returncode,
-                "stdout": result.stdout[-5000:] if len(result.stdout) > 5000 else result.stdout,
-                "stderr": result.stderr[-3000:] if len(result.stderr) > 3000 else result.stderr,
+                "stdout": result.stdout[:settings.STDOUT_TRUNCATION] if len(result.stdout) > settings.STDOUT_TRUNCATION else result.stdout,
+                "stderr": result.stderr[-settings.STDERR_TRUNCATION:] if len(result.stderr) > settings.STDERR_TRUNCATION else result.stderr,
             }
         except subprocess.TimeoutExpired:
             return {
@@ -247,8 +248,8 @@ class Validator:
                 "actual_summary": {"raw": stdout[:500]},
                 "expected_summary": {
                     "total_blocks": test_case.expected_total_blocks,
-                    "pass": test_case.expected_pass,
-                    "fail": test_case.expected_fail,
+                    "pass_count": test_case.expected_pass,
+                    "fail_count": test_case.expected_fail,
                 },
             }
 
@@ -295,8 +296,8 @@ class Validator:
             },
             "expected_summary": {
                 "total_blocks": test_case.expected_total_blocks,
-                "pass": test_case.expected_pass,
-                "fail": test_case.expected_fail,
+                "pass_count": test_case.expected_pass,
+                "fail_count": test_case.expected_fail,
             },
             "actual_details": actual_details,
         }

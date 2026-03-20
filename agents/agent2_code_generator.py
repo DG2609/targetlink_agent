@@ -26,9 +26,8 @@ def create_agent2(xml_toolkit: XmlToolkit, output_dir: str) -> Agent:
             xml_toolkit,
             CodeToolkit(output_dir=output_dir),
         ],
-        instructions=load_skill("code-generator"),
+        instructions=load_skill("code-generator", include_references=True),
         markdown=True,
-        debug_mode=True,
         # 20 calls: ~7 explore (hierarchy, block_types, config_locations, blocks, config, xpath, discover)
         #           + ~3 verify + 1 write + buffer cho compound rules
         tool_call_limit=20,

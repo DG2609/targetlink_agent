@@ -12,6 +12,8 @@ Agent 3: input = method params (code_file, test_cases) → không cần schema
 
 from __future__ import annotations
 
+import json as _json
+
 from pydantic import BaseModel, Field
 from typing import Optional
 
@@ -158,6 +160,38 @@ class Agent2Input(BaseModel):
     config_discovery_value_format: Optional[str] = Field(default=None, examples=["on/off", "integer", "fixdt(...)"])
     config_discovery_notes: Optional[str] = Field(default=None)
 
+    # Multi-config / multi-block / scope (từ ParsedRule mở rộng)
+    compound_logic: str = Field(
+        default="SINGLE",
+        description="Logic ghép: SINGLE (1 config), AND (tất cả đúng), OR (ít nhất 1 đúng)",
+    )
+    additional_configs_json: str = Field(
+        default="",
+        description="JSON serialized additional_configs từ ParsedRule (compound rules)",
+    )
+    target_block_types: list[str] = Field(
+        default_factory=list,
+        description="Explicit block types từ ParsedRule. Rỗng = auto-discover",
+    )
+    scope: str = Field(
+        default="all_instances",
+        description="Phạm vi check: all_instances, specific_path, subsystem",
+    )
+    scope_filter: str = Field(
+        default="",
+        description="Pattern lọc khi scope != 'all_instances'",
+    )
+
+    # Raw data injection (giảm exploration tool calls)
+    blocks_raw_data: str = Field(
+        default="",
+        description="Raw JSON entry từ blocks.json cho block type này",
+    )
+    bddefaults_context: str = Field(
+        default="",
+        description="Default values từ bddefaults.xml cho block type này (JSON)",
+    )
+
     # Cross-rule cache (từ rules trước cùng model)
     cache_summary: str = Field(
         default="",
@@ -196,12 +230,29 @@ class Agent2Input(BaseModel):
                 f"  value_format: {self.config_discovery_value_format}\n"
                 f"  notes: {self.config_discovery_notes}"
             )
+        # ParsedRule extended fields (chỉ hiện khi non-default)
+        if self.compound_logic != "SINGLE":
+            context += f"\ncompound_logic: {self.compound_logic}"
+            if self.additional_configs_json:
+                context += f"\nadditional_configs: {self.additional_configs_json}"
+        if self.target_block_types:
+            context += f"\ntarget_block_types: {self.target_block_types}"
+        if self.scope != "all_instances":
+            context += f"\nscope: {self.scope}, scope_filter: {self.scope_filter}"
+
+        if self.blocks_raw_data:
+            context += f"\n\nBLOCKS_DICTIONARY_ENTRY (raw from blocks.json):\n{self.blocks_raw_data}"
+        if self.bddefaults_context:
+            context += f"\n\nBLOCK_DEFAULTS (from bddefaults.xml):\n{self.bddefaults_context}"
         if self.cache_summary:
             context += f"\n\n{self.cache_summary}"
         return context
 
     @classmethod
-    def from_pipeline(cls, rule, parsed_rule, block_data, config_discovery=None) -> "Agent2Input":
+    def from_pipeline(
+        cls, rule, parsed_rule, block_data, config_discovery=None,
+        blocks_raw_data: str = "", bddefaults_context: str = "",
+    ) -> "Agent2Input":
         """Factory từ pipeline data — dùng trong runner.py."""
         kwargs = dict(
             rule_id=rule.rule_id,
@@ -213,7 +264,18 @@ class Agent2Input(BaseModel):
             expected_value=parsed_rule.expected_value,
             config_map_analysis=block_data.config_map_analysis,
             output_filename=f"check_rule_{rule.rule_id}.py",
+            compound_logic=parsed_rule.compound_logic,
+            target_block_types=list(parsed_rule.target_block_types),
+            scope=parsed_rule.scope,
+            scope_filter=parsed_rule.scope_filter,
+            blocks_raw_data=blocks_raw_data,
+            bddefaults_context=bddefaults_context,
         )
+        if parsed_rule.additional_configs:
+            kwargs["additional_configs_json"] = _json.dumps(
+                [c.model_dump() for c in parsed_rule.additional_configs],
+                ensure_ascii=False,
+            )
         if config_discovery:
             kwargs.update(
                 config_discovery_block_type=config_discovery.block_type,
@@ -321,6 +383,22 @@ class Agent5Input(BaseModel):
         description="ID rule đang xử lý, VD: 'R001'",
         examples=["R001", "R002"],
     )
+    # ParsedRule context — giúp Agent 5 biết logic check mong muốn
+    condition: str = Field(
+        default="",
+        description="Check condition từ ParsedRule: equal, not_equal, not_empty, contains, in_list",
+        examples=["equal", "not_equal", "not_empty"],
+    )
+    expected_value: str = Field(
+        default="",
+        description="Giá trị mong đợi từ ParsedRule",
+        examples=["on", "off", "Inherit: auto"],
+    )
+    block_keyword: str = Field(
+        default="",
+        description="Block keyword từ ParsedRule",
+        examples=["gain", "abs", "inport"],
+    )
     code_file_path: str = Field(
         description="Path file Python cần điều tra",
         examples=["generated_checks/check_rule_R001.py"],
@@ -336,8 +414,13 @@ class Agent5Input(BaseModel):
     )
     expected_result: Optional[dict] = Field(
         default=None,
-        description="Kết quả mong đợi {total_blocks, pass, fail}",
-        examples=[{"total_blocks": 19, "pass": 18, "fail": 1}],
+        description="Kết quả mong đợi {total_blocks, pass_count, fail_count}",
+        examples=[{"total_blocks": 19, "pass_count": 18, "fail_count": 1}],
+    )
+    actual_details: Optional[dict] = Field(
+        default=None,
+        description="Chi tiết block names pass/fail từ Agent 3 (giúp diagnose chính xác)",
+        examples=[None, {"pass_block_names": ["Gain1"], "fail_block_names": ["Gain3"]}],
     )
     config_map_analysis: str = Field(
         description="Phân tích config từ Agent 1, BlockMappingData.config_map_analysis",
@@ -409,6 +492,15 @@ class Agent5Input(BaseModel):
                 f"test cases passed — code chạy được nhưng logic KHÔNG đúng cho mọi model."
             )
 
+        # Rule check logic (từ ParsedRule)
+        if self.condition and self.expected_value:
+            parts.append(
+                f"Rule Check Logic:\n"
+                f"  block_keyword: {self.block_keyword}\n"
+                f"  condition: {self.condition}\n"
+                f"  expected_value: {self.expected_value}"
+            )
+
         # Core info
         parts.append(
             f"Rule: {self.rule_id}\n"
@@ -419,6 +511,13 @@ class Agent5Input(BaseModel):
             f"Block config analysis: {self.config_map_analysis}\n"
             f"Đây là lần điều tra thứ {self.attempt}"
         )
+
+        # Block-level details from Agent 3 (giúp diagnose chính xác block nào lỗi)
+        if self.actual_details:
+            parts.append(
+                f"Block details: pass={self.actual_details.get('pass_block_names', [])}, "
+                f"fail={self.actual_details.get('fail_block_names', [])}"
+            )
 
         # Last retry hint
         if self.is_last_retry:
@@ -472,20 +571,26 @@ class Agent5Input(BaseModel):
         config_discovery=None,
         exploration_summary: str = "",
         previous_findings: list[str] | None = None,
+        parsed_rule=None,
     ) -> "Agent5Input":
         """Factory từ state machine data.
 
         Args:
             exploration_summary: Knowledge handoff từ Agent 2 (Fix A).
             previous_findings: Investigation notes từ Agent 5 retries trước (Fix B).
+            parsed_rule: ParsedRule object — cung cấp condition/expected_value cho Agent 5.
         """
-        escalated = sm.agent4_count > 0 and validation.status.value == "CODE_ERROR"
+        # Agent 4 đã thử → luôn coi là escalated cho Agent 5.
+        # Không dùng validation.status vì lúc này status có thể đã đổi
+        # (VD: re-validation cho WRONG_RESULT thay vì CODE_ERROR).
+        escalated = sm.agent4_count > 0
         kwargs = dict(
             rule_id=validation.rule_id,
             code_file_path=validation.code_file_path,
             failed_test_case=validation.failed_test_case or "N/A",
             actual_result=validation.actual_result,
             expected_result=validation.expected_result,
+            actual_details=validation.actual_details,
             config_map_analysis=block_data.config_map_analysis,
             attempt=sm.agent5_count,
             is_escalated=escalated,
@@ -494,7 +599,7 @@ class Agent5Input(BaseModel):
             status_value=validation.status.value,
             test_cases_passed=validation.test_cases_passed,
             test_cases_total=validation.test_cases_total,
-            error_history=list(sm._error_history),
+            error_history=sm.error_history,
             exploration_summary=exploration_summary,
             previous_findings=previous_findings or [],
         )
@@ -504,5 +609,11 @@ class Agent5Input(BaseModel):
                 config_discovery_xpath_pattern=config_discovery.xpath_pattern,
                 config_discovery_default_value=config_discovery.default_value,
                 config_discovery_notes=config_discovery.notes,
+            )
+        if parsed_rule:
+            kwargs.update(
+                condition=str(parsed_rule.condition.value),
+                expected_value=parsed_rule.expected_value,
+                block_keyword=parsed_rule.block_keyword,
             )
         return cls(**kwargs)

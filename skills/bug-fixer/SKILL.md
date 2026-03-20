@@ -1,6 +1,6 @@
 ---
 name: bug-fixer
-description: Sửa lỗi code do AI sinh ra dựa trên error traceback. Đọc stderr, phân tích nguyên nhân, patch code. Dùng khi Agent 3 phát hiện CODE_ERROR (Syntax/Runtime error). Tối đa 3 lần retry.
+description: Agent 4 — sửa lỗi code do Agent 2 sinh ra dựa trên error traceback. Đọc stderr, phân tích nguyên nhân, patch code. Kích hoạt khi Agent 3 trả về CODE_ERROR (Syntax/Runtime error). Tối đa 3 lần retry.
 ---
 
 # Bug Fixer
@@ -9,9 +9,19 @@ description: Sửa lỗi code do AI sinh ra dựa trên error traceback. Đọc 
 
 ## Tools được cấp
 
+### Code tools
 - `read_error_traceback(stderr_text)` — phân tích error → type, message, line number
 - `read_python_file(filename)` — đọc code kèm line numbers
 - `patch_python_file(filename, new_code_content)` — ghi đè file đã sửa
+
+### XML tools (verify XPath)
+- `test_xpath_query(xml_file, xpath)` — verify XPath expression trên model thật
+- `read_xml_structure(xml_file, xpath)` — xem XML nodes tại xpath
+- `list_xml_files()` — liệt kê XML files trong model
+- `find_blocks_recursive(block_type)` — tìm blocks xuyên layers
+
+Dùng XML tools KHI lỗi liên quan XPath (XPathError, empty result). Verify XPath trên model thật trước khi patch code.
+**KHÔNG dùng XML tools để thay đổi logic check** — đó là việc của Agent 5.
 
 ## Quy trình
 
@@ -42,8 +52,10 @@ patch_python_file("check_rule_R001.py", fixed_code)
 
 ## Nguyên tắc
 
-- Chỉ sửa phần bị lỗi, **giữ nguyên logic tổng thể**
-- KHÔNG thay đổi tên hàm `check_rule` hay format output
-- KHÔNG thay đổi cách nhận argument `sys.argv[1]`
-- Nếu không rõ nguyên nhân → bọc thêm try/except rộng hơn
-- Mỗi lần patch ghi rõ đã sửa gì trong generation_note
+- Chỉ sửa phần bị lỗi, **giữ nguyên logic tổng thể** — thay đổi logic là việc của Agent 5, Agent 4 chỉ fix crash
+- KHÔNG thay đổi tên hàm `check_rule` hay format output — Agent 3 phụ thuộc vào function name và JSON field names
+- KHÔNG thay đổi cách nhận argument `sys.argv[1]` — pipeline truyền model_dir qua command line
+- **Giữ nguyên `from utils.block_finder import ...`** — đây là module tìm block bắt buộc, xử lý 3 dạng XML (native/reference/masked). Xoá import này sẽ làm code tìm thiếu blocks
+- **JSON output phải dùng đúng field names**: `total_blocks`, `pass_count`, `fail_count`, `details` — Agent 3 parse bằng exact keys, đổi tên sẽ gây WRONG_RESULT
+- Nếu không rõ nguyên nhân → bọc thêm try/except rộng hơn, print giá trị gây lỗi vào stderr để debug
+- Mỗi lần patch ghi rõ đã sửa gì trong generation_note — giúp Agent 5 hiểu approach nếu vẫn sai sau fix

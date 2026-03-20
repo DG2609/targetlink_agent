@@ -12,6 +12,7 @@ Giờ developer chỉ cần đọc file này để hiểu toàn bộ retry flow.
 """
 
 import json
+import logging
 from enum import Enum
 
 from schemas.validation_schemas import ValidationResult, ValidationStatus
@@ -20,6 +21,8 @@ from schemas.diff_schemas import ConfigDiscovery
 from schemas.report_schemas import TraceEntry
 from schemas.agent_inputs import Agent4Input, Agent5Input
 from pipeline.retry import classify_error, ErrorCategory, EARLY_ESCALATE_AFTER
+
+logger = logging.getLogger(__name__)
 
 
 class RetryState(str, Enum):
@@ -63,6 +66,11 @@ class RetryStateMachine:
         self._trace: list[TraceEntry] = []
         self._last_dedup_attempts: int = -1
 
+    @property
+    def error_history(self) -> list[str]:
+        """Public accessor for error history (used by Agent5Input)."""
+        return list(self._error_history)
+
     # ── State transitions ────────────────────────────
 
     def next_state(self, validation: ValidationResult) -> RetryState:
@@ -70,12 +78,29 @@ class RetryStateMachine:
 
         Đây là HÀM DUY NHẤT quyết định routing — không có logic routing ở đâu khác.
         """
+        prev_state = self.state
+
         if validation.status == ValidationStatus.PASS:
             self.state = RetryState.DONE
+            logger.debug(
+                "State transition: %s → %s (reason: validation PASS)",
+                prev_state, self.state,
+            )
             return self.state
 
         if validation.status == ValidationStatus.CODE_ERROR:
             self.state = self._route_code_error(validation)
+            logger.debug(
+                "State transition: %s → %s (reason: CODE_ERROR, agent4=%d, agent5=%d)",
+                prev_state, self.state, self.agent4_count, self.agent5_count,
+            )
+            if self.state == RetryState.FAILED:
+                logger.error(
+                    "State reached FAILED: budget exhausted after CODE_ERROR "
+                    "(agent4=%d/%d, agent5=%d/%d)",
+                    self.agent4_count, self.max_agent4,
+                    self.agent5_count, self.max_agent5,
+                )
             return self.state
 
         if validation.status in (ValidationStatus.WRONG_RESULT, ValidationStatus.PARTIAL_PASS):
@@ -84,10 +109,33 @@ class RetryStateMachine:
                 self.state = RetryState.INSPECT
             else:
                 self.state = RetryState.FAILED
+            logger.debug(
+                "State transition: %s → %s (reason: %s, agent5=%d)",
+                prev_state, self.state, validation.status.value, self.agent5_count,
+            )
+            if self.state == RetryState.FAILED:
+                logger.error(
+                    "State reached FAILED: budget exhausted after %s "
+                    "(agent4=%d/%d, agent5=%d/%d)",
+                    validation.status.value,
+                    self.agent4_count, self.max_agent4,
+                    self.agent5_count, self.max_agent5,
+                )
             return self.state
 
         # SCHEMA_ERROR, FAILED_* → dừng
         self.state = RetryState.FAILED
+        logger.debug(
+            "State transition: %s → %s (reason: terminal status %s)",
+            prev_state, self.state, validation.status.value,
+        )
+        logger.error(
+            "State reached FAILED: terminal validation status %s "
+            "(agent4=%d/%d, agent5=%d/%d)",
+            validation.status.value,
+            self.agent4_count, self.max_agent4,
+            self.agent5_count, self.max_agent5,
+        )
         return self.state
 
     def _route_code_error(self, validation: ValidationResult) -> RetryState:
@@ -158,9 +206,17 @@ class RetryStateMachine:
             and self._error_history[-1] == entry
             and getattr(self, "_last_dedup_attempts", -1) == total_attempts
         ):
+            logger.debug(
+                "Duplicate error skipped (no new retry since last record): category=%s, agent4=%d, agent5=%d",
+                error_cat, self.agent4_count, self.agent5_count,
+            )
             return
         self._last_dedup_attempts = total_attempts
         self._error_history.append(entry)
+        logger.warning(
+            "Error recorded: category=%s, agent4=%d, agent5=%d",
+            error_cat, self.agent4_count, self.agent5_count,
+        )
 
     # ── Context builders ─────────────────────────────
 
@@ -175,7 +231,7 @@ class RetryStateMachine:
             failed_test_case=validation.failed_test_case or "N/A",
             stderr=validation.stderr or "",
             attempt=self.agent4_count,
-            error_history=list(self._error_history),
+            error_history=self.error_history,
         )
         return inp.to_prompt()
 
@@ -186,6 +242,7 @@ class RetryStateMachine:
         config_discovery: ConfigDiscovery | None = None,
         exploration_summary: str = "",
         previous_findings: list[str] | None = None,
+        parsed_rule=None,
     ) -> str:
         """Build context message cho Agent 5 (Inspector).
 
@@ -194,6 +251,7 @@ class RetryStateMachine:
         Args:
             exploration_summary: Knowledge handoff từ Agent 2 (Fix A).
             previous_findings: Investigation notes từ Agent 5 retries trước (Fix B).
+            parsed_rule: ParsedRule object — condition/expected_value cho Agent 5.
         """
         inp = Agent5Input.from_state_machine(
             validation=validation,
@@ -202,17 +260,18 @@ class RetryStateMachine:
             config_discovery=config_discovery,
             exploration_summary=exploration_summary,
             previous_findings=previous_findings,
+            parsed_rule=parsed_rule,
         )
         return inp.to_prompt()
 
     # ── Finalization ─────────────────────────────────
 
-    def mark_final_status(self, validation: ValidationResult) -> None:
-        """Đánh dấu FAILED_* status khi hết retry."""
+    def mark_final_status(self, validation: ValidationResult) -> ValidationResult:
+        """Đánh dấu FAILED_* status khi hết retry. Trả về ValidationResult mới (không mutate)."""
         status_map = {
             ValidationStatus.CODE_ERROR: ValidationStatus.FAILED_CODE_ERROR,
             ValidationStatus.WRONG_RESULT: ValidationStatus.FAILED_WRONG_RESULT,
             ValidationStatus.PARTIAL_PASS: ValidationStatus.FAILED_PARTIAL_PASS,
         }
-        if validation.status in status_map:
-            validation.status = status_map[validation.status]
+        new_status = status_map.get(validation.status, validation.status)
+        return validation.model_copy(update={"status": new_status})

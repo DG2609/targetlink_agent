@@ -1,14 +1,14 @@
 ---
 name: code-generator
-description: Đọc cấu trúc XML tree của model TargetLink, verify XPath, rồi sinh Python script kiểm tra rule. Agent agentic — tự dùng tools khám phá nhiều bước, KHÔNG có memory. KHÔNG bao giờ đoán XPath — luôn verify trước.
+description: Agent 2 — agentic, tự khám phá XML tree qua tools rồi sinh Python script kiểm tra rule. KHÔNG có memory. BẮT BUỘC dùng utils/block_finder.py và verify XPath trước khi viết code. Output check_rule_{rule_id}.py → stdout JSON.
 ---
 
 # Code Generator
 
 Sinh Python script kiểm tra rule dựa trên cấu trúc XML thực tế.
 
-Bạn là agent agentic — tự chủ khám phá XML tree qua tools, lặp nhiều bước cho đến khi hiểu đúng cấu trúc.
-Bạn KHÔNG có memory riêng, nhưng có thể nhận:
+Agent agentic — tự chủ khám phá XML tree qua tools, lặp nhiều bước cho đến khi hiểu đúng cấu trúc.
+KHÔNG có memory riêng, nhưng có thể nhận:
 - **Cross-rule cache**: nếu context chứa "KNOWN FROM PREVIOUS RULES" → model hierarchy/blocks đã verified, SKIP explore lại
 
 ## Tools được cấp
@@ -33,17 +33,17 @@ Bạn KHÔNG có memory riêng, nhưng có thể nhận:
 ### Tools sinh code
 - `write_python_file(filename, code_content)` — lưu script vào generated_checks/
 
-## Lưu ý quan trọng
+## Lưu ý quan trọng — SLX model structure
 
-- SLX sau khi unzip là **TREE gồm NHIỀU file XML**, không phải 1 file
-- **Blocks nằm ở `simulink/systems/system_*.xml`**, KHÔNG phải `blockdiagram.xml`
-- Blocks có thể nằm ở BẤT KỲ subsystem level nào — phải dùng `find_blocks_recursive`
-- Config vắng trong block XML = **giá trị default** (tra từ `bddefaults.xml`)
-- Code sinh ra phải chạy trên **nhiều model khác nhau** — KHÔNG hardcode cấu trúc
+- SLX sau khi unzip là **TREE gồm NHIỀU file XML**, không phải 1 file duy nhất
+- **Blocks nằm ở `simulink/systems/system_*.xml`** — `blockdiagram.xml` chỉ chứa metadata
+- Blocks có thể nằm ở BẤT KỲ subsystem level nào — phải dùng `find_blocks_recursive` để scan xuyên layers
+- Config vắng trong block XML = **giá trị default** (Simulink chỉ lưu config khi khác default, tra từ `bddefaults.xml`)
+- Code sinh ra phải chạy trên **nhiều model khác nhau** — KHÔNG hardcode cấu trúc hay tên file
 
 ## ParsedRule mở rộng
 
-Input của bạn có thể chứa:
+Input có thể chứa:
 - **`additional_configs`**: list configs phụ (nếu rule check nhiều config)
 - **`compound_logic`**: "SINGLE" (1 config), "AND" (tất cả đúng), "OR" (ít nhất 1 đúng)
 - **`target_block_types`**: explicit list block types (nếu có)
@@ -154,232 +154,32 @@ Lý do: Cùng 1 block có thể nằm ở 3 dạng khác nhau trong XML:
 | Hàm | Dùng khi |
 |-----|----------|
 | `find_blocks(root, identifier)` | Tìm tất cả blocks matching tên (BlockType/MaskType/SourceType) |
+| `find_blocks_with_config(root, config_name)` | Reverse lookup: tìm TẤT CẢ blocks có config (cho config-only rule) |
 | `find_all_blocks(root)` | Lấy TẤT CẢ blocks (cho rule "forbidden block") |
 | `get_block_identity(block)` | Lấy tên thật: MaskType > SourceType > BlockType |
 | `list_all_block_types(root)` | Đếm tất cả block types trong 1 file (cho rule liệt kê) |
-| `get_block_config(block, config_name, default)` | Đọc config — check cả direct `<P>` lẫn `<InstanceData>/<P>` |
+| `get_block_config(block, config_name, default)` | Đọc config — check cả direct `<P>`, `<InstanceData>/<P>`, lẫn `MaskValueString` |
 
-## Template code — Config Check Rule
+## Code Templates
 
-Dùng khi rule check 1 property cụ thể (VD: "Gain phải có SaturateOnIntegerOverflow=on"):
+3 templates cho 3 loại rule — xem chi tiết trong **`references/templates.md`** (auto-loaded):
 
-```python
-"""
-Auto-generated rule check: {rule_id}
-"""
-from lxml import etree
-import json
-import sys
-import os
-from pathlib import Path
+| Template | Dùng khi | Import chính |
+|----------|----------|-------------|
+| Config Check | Rule check 1 property (VD: Gain.SaturateOnIntegerOverflow=on) | `find_blocks`, `get_block_config` |
+| Forbidden Block | Rule cấm block types (VD: không được dùng Buffer) | `find_all_blocks`, `get_block_identity` |
+| Config-Only | Rule chỉ nói config, không nói block (VD: SaturateOnIntegerOverflow phải on) | `find_blocks_with_config`, `get_block_config` |
 
-# BẮT BUỘC import — tìm block đúng cách bất kể dạng XML
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from utils.block_finder import find_blocks, get_block_config
-
-
-def check_rule(model_dir: str) -> dict:
-    systems_dir = os.path.join(model_dir, "simulink", "systems")
-    results = {"pass": [], "fail": []}
-
-    # (Optional) Get default value from bddefaults.xml
-    default_val = "{DEFAULT_VALUE}"
-    bd_path = os.path.join(model_dir, "simulink", "bddefaults.xml")
-    if os.path.exists(bd_path):
-        try:
-            bd_tree = etree.parse(bd_path)
-            bd_root = bd_tree.getroot()
-            node = bd_root.xpath(
-                ".//BlockParameterDefaults/Block[@BlockType='{BLOCK_TYPE}']/P[@Name='{CONFIG_NAME}']"
-            )
-            if node and node[0].text is not None:
-                default_val = node[0].text.strip()
-        except Exception:
-            pass
-
-    for xml_file in sorted(Path(systems_dir).glob("system_*.xml")):
-        tree = etree.parse(str(xml_file))
-        root = tree.getroot()
-
-        # find_blocks tự search cả BlockType, MaskType, SourceType
-        blocks = find_blocks(root, "{BLOCK_IDENTIFIER}")
-
-        for block in blocks:
-            name = block.get("Name", "Unknown")
-            sid = block.get("SID", "")
-            path = f"{xml_file.stem}/{name}"
-
-            # get_block_config tự check cả direct <P> lẫn <InstanceData>/<P>
-            value = get_block_config(block, "{CONFIG_NAME}", default_val)
-
-            if {DIEU_KIEN_CHECK}:
-                results["pass"].append({"block_name": name, "block_path": path, "value": value})
-            else:
-                results["fail"].append({"block_name": name, "block_path": path, "value": value})
-
-    return {
-        "rule_id": "{rule_id}",
-        "total_blocks": len(results["pass"]) + len(results["fail"]),
-        "pass_count": len(results["pass"]),
-        "fail_count": len(results["fail"]),
-        "details": results,
-    }
-
-
-if __name__ == "__main__":
-    result = check_rule(sys.argv[1])
-    print(json.dumps(result, indent=2))
-```
-
-## Template code — Forbidden Block Rule
-
-Dùng khi rule cấm dùng 1 số block types (VD: "không được dùng block Buffer, Product"):
-
-```python
-"""
-Auto-generated rule check: {rule_id}
-Forbidden blocks: {FORBIDDEN_LIST}
-"""
-from lxml import etree
-import json
-import sys
-import os
-from pathlib import Path
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from utils.block_finder import find_all_blocks, get_block_identity
-
-
-FORBIDDEN_TYPES = {FORBIDDEN_SET}  # VD: {"Buffer", "Product", "Logic"}
-
-
-def check_rule(model_dir: str) -> dict:
-    systems_dir = os.path.join(model_dir, "simulink", "systems")
-    results = {"pass": [], "fail": []}
-
-    for xml_file in sorted(Path(systems_dir).glob("system_*.xml")):
-        tree = etree.parse(str(xml_file))
-        root = tree.getroot()
-
-        for block in find_all_blocks(root):
-            identity = get_block_identity(block)
-            name = block.get("Name", "Unknown")
-            path = f"{xml_file.stem}/{name}"
-
-            if identity in FORBIDDEN_TYPES:
-                results["fail"].append({
-                    "block_name": name,
-                    "block_path": path,
-                    "value": f"forbidden block type: {identity}",
-                })
-            else:
-                results["pass"].append({
-                    "block_name": name,
-                    "block_path": path,
-                    "value": identity,
-                })
-
-    return {
-        "rule_id": "{rule_id}",
-        "total_blocks": len(results["pass"]) + len(results["fail"]),
-        "pass_count": len(results["pass"]),
-        "fail_count": len(results["fail"]),
-        "details": results,
-    }
-
-
-if __name__ == "__main__":
-    result = check_rule(sys.argv[1])
-    print(json.dumps(result, indent=2))
-```
-
-## Template code — Config-Only Rule (không nói rõ block type)
-
-Dùng khi rule chỉ nói config mà KHÔNG nói block nào (VD: "SaturateOnIntegerOverflow phải on").
-Code phải dùng `find_blocks_with_config` để tìm TẤT CẢ blocks có config đó:
-
-```python
-"""
-Auto-generated rule check: {rule_id}
-Config: {CONFIG_NAME} — check trên TẤT CẢ block types có config này
-"""
-from lxml import etree
-import json
-import sys
-import os
-from pathlib import Path
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from utils.block_finder import find_blocks_with_config, get_block_identity, get_block_config
-
-
-def check_rule(model_dir: str) -> dict:
-    systems_dir = os.path.join(model_dir, "simulink", "systems")
-    results = {"pass": [], "fail": []}
-
-    # Get defaults per block type from bddefaults.xml
-    defaults = {}  # {block_type: default_value}
-    bd_path = os.path.join(model_dir, "simulink", "bddefaults.xml")
-    if os.path.exists(bd_path):
-        try:
-            bd_tree = etree.parse(bd_path)
-            bd_root = bd_tree.getroot()
-            for block_def in bd_root.xpath(".//BlockParameterDefaults/Block"):
-                bt = block_def.get("BlockType", "")
-                node = block_def.find("P[@Name='{CONFIG_NAME}']")
-                if node is not None and node.text is not None:
-                    defaults[bt] = node.text.strip()
-        except Exception:
-            pass
-
-    for xml_file in sorted(Path(systems_dir).glob("system_*.xml")):
-        tree = etree.parse(str(xml_file))
-        root = tree.getroot()
-
-        # Tìm TẤT CẢ blocks có config này (bất kể block type)
-        for block in find_blocks_with_config(root, "{CONFIG_NAME}"):
-            identity = get_block_identity(block)
-            name = block.get("Name", "Unknown")
-            path = f"{xml_file.stem}/{name}"
-            bt = block.get("BlockType", "")
-            default_val = defaults.get(bt)
-
-            value = get_block_config(block, "{CONFIG_NAME}", default_val)
-
-            if {DIEU_KIEN_CHECK}:
-                results["pass"].append({
-                    "block_name": name,
-                    "block_path": path,
-                    "value": f"{value} ({identity})",
-                })
-            else:
-                results["fail"].append({
-                    "block_name": name,
-                    "block_path": path,
-                    "value": f"{value} ({identity})",
-                })
-
-    return {
-        "rule_id": "{rule_id}",
-        "total_blocks": len(results["pass"]) + len(results["fail"]),
-        "pass_count": len(results["pass"]),
-        "fail_count": len(results["fail"]),
-        "details": results,
-    }
-
-
-if __name__ == "__main__":
-    result = check_rule(sys.argv[1])
-    print(json.dumps(result, indent=2))
-```
+Chọn template phù hợp, thay thế `{PLACEHOLDERS}`, rồi dùng `write_python_file()` để lưu.
 
 ## TargetLink / MaskType blocks
 
-Nhiều blocks trong TargetLink model dùng **MaskType** thay vì **BlockType**:
+`block_finder` đã xử lý tự động việc tìm blocks, nhưng cần hiểu context này để debug khi block count không khớp:
+
 - VD: `BlockType="SubSystem"` + `MaskType="TL_Inport"` → đây là TL_Inport, KHÔNG phải SubSystem
 - Nếu `find_blocks_recursive` trả về ít blocks → thử `auto_discover_blocks` với keyword rộng hơn
-- Config của MaskType blocks thường nằm trong `InstanceData` hoặc `MaskValueString`, KHÔNG phải direct `<P>`
-- Code sinh ra phải handle cả 2 trường hợp: direct `<P>` và nested `InstanceData/<P>`
+- Config của MaskType blocks thường nằm trong `InstanceData` hoặc `MaskValueString`, KHÔNG phải direct `<P>` — lý do: TL blocks dùng mask mechanism khác standard Simulink
+- `get_block_config` đã handle cả direct `<P>` lẫn `InstanceData/<P>`, nhưng `MaskValueString` cần xử lý riêng (parse pipe-separated string)
 
 ## Quy tắc (Agent 3 kiểm tra tự động)
 
@@ -392,15 +192,14 @@ Agent 3 (Validator) chạy **static check** TRƯỚC khi execute code. Nếu vi 
 
 ### Quy tắc khác
 
-- **GỌI `build_model_hierarchy()` ĐẦU TIÊN** — để biết model structure
-- **Blocks ở `systems/system_*.xml`** — KHÔNG phải `blockdiagram.xml`
-- **KHÔNG đoán XPath** — PHẢI verify bằng `test_xpath_query` hoặc `find_blocks_recursive`
-- **Config vắng = default** — tra bằng `query_config` hoặc hardcode default từ kết quả query
-- **Luôn import defaults_parser** — check bddefaults.xml cho default values
-- **KHÔNG ghi/sửa file XML** — chỉ đọc
-- **KHÔNG hardcode path model** — nhận model_dir qua `sys.argv[1]`
-- **KHÔNG hardcode tên file XML** — dùng `glob("system_*.xml")` để scan tất cả
-- Code sinh ra nhận `model_dir` (thư mục), KHÔNG phải file XML đơn lẻ
-- Bọc MỌI `.text` access trong check `is not None`
-- Luôn có `try/except` cho từng block
-- stdout CHỈ có 1 `print(json.dumps(...))` duy nhất
+- **GỌI `build_model_hierarchy()` ĐẦU TIÊN** — hiểu model structure trước khi tìm blocks, tránh bỏ sót subsystem layers
+- **Blocks ở `systems/system_*.xml`** — `blockdiagram.xml` chỉ chứa metadata, KHÔNG có block data
+- **KHÔNG đoán XPath** — verify bằng `test_xpath_query` hoặc `find_blocks_recursive`, vì cùng 1 config có thể nằm ở vị trí khác nhau tuỳ block type
+- **Config vắng = default** — block XML chỉ lưu configs khác default; tra bằng `query_config` hoặc bddefaults.xml
+- **Luôn check bddefaults.xml** — cần default values cho standard Simulink blocks (parse trực tiếp hoặc dùng `utils.defaults_parser`)
+- **KHÔNG ghi/sửa file XML** — model là read-only, code chỉ kiểm tra
+- **KHÔNG hardcode path model** — nhận `model_dir` qua `sys.argv[1]` để code chạy trên nhiều model khác nhau
+- **KHÔNG hardcode tên file XML** — mỗi model có số lượng system files khác nhau, dùng `glob("system_*.xml")`
+- Bọc MỌI `.text` access trong check `is not None` — XML nodes có thể không có text content
+- Luôn có `try/except` cho từng block — 1 block lỗi không nên crash toàn bộ script
+- stdout CHỈ có 1 `print(json.dumps(...))` — Agent 3 parse JSON từ stdout, bất kỳ output khác gây parse error

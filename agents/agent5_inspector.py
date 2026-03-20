@@ -28,7 +28,6 @@ def create_agent5(xml_toolkit: XmlToolkit, output_dir: str) -> Agent:
         ],
         instructions=load_skill("model-inspector"),
         markdown=True,
-        debug_mode=True,
         # 20 calls: needs more than Agent 2 — reads code, investigates multiple hypotheses,
         # may escalate (raw_config, deep_search), then rewrites. Budget: ~5 read + ~8 investigate + ~2 verify + 1 write + buffer
         tool_call_limit=20,

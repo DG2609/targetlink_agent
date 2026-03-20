@@ -56,6 +56,10 @@ Format validate.json:
     parser.add_argument("--rules",    default=None, help="Luật cần kiểm tra (rules.json)")
     parser.add_argument("--expected", default=None, help="Test case kết quả mong đợi")
 
+    # Cách 3: Consolidated test config
+    parser.add_argument("--test-config", default=None,
+                        help="Consolidated test config file (chứa rules + test_cases + blocks_path)")
+
     # Chung
     parser.add_argument("--output",   default=None,  help="File output báo cáo JSON (tuỳ chọn)")
     parser.add_argument("--model-before", default=None,
@@ -73,6 +77,25 @@ def _resolve_args(args: argparse.Namespace) -> argparse.Namespace:
     Nếu --validate được cung cấp → đọc file, extract expected.
     Args riêng lẻ (--model, --blocks...) override wrapper nếu cả 2 cùng có.
     """
+    # ── Resolve --test-config (consolidated format) ──
+    if args.test_config:
+        from pipeline.test_config_parser import parse_test_config
+        try:
+            parsed = parse_test_config(args.test_config)
+        except (FileNotFoundError, ValueError) as e:
+            print(f"[ERROR] test_config: {e}", file=sys.stderr)
+            sys.exit(1)
+        if not args.model:
+            args.model = parsed["model"]
+        if not args.blocks:
+            args.blocks = parsed["blocks"]
+        if not args.rules:
+            args.rules = parsed["rules"]
+        if not args.expected:
+            args.expected = parsed["expected"]
+        if not args.model_before and parsed.get("model_before"):
+            args.model_before = parsed["model_before"]
+
     # ── Resolve --input ──
     if args.input:
         input_path = Path(args.input)

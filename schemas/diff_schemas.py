@@ -6,6 +6,8 @@ Schemas cho Diff-Based Config Discovery.
   - ConfigDiscovery: output của Agent 1.5 — ground truth config locations
 """
 
+from typing import Literal, Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -18,14 +20,16 @@ class ConfigChange(BaseModel):
     mask_type: str = Field(default="", description="MaskType nếu là TL block, VD: 'TL_Gain'")
     system_file: str = Field(description="File XML chứa block, VD: 'simulink/systems/system_root.xml'")
     config_name: str = Field(description="Tên config, VD: 'SaturateOnIntegerOverflow'")
-    old_value: str | None = Field(default=None, description="Giá trị trước (None = config mới thêm)")
-    new_value: str | None = Field(default=None, description="Giá trị sau (None = config bị xoá)")
+    old_value: Optional[str] = Field(default=None, description="Giá trị trước (None = config mới thêm)")
+    new_value: Optional[str] = Field(default=None, description="Giá trị sau (None = config bị xoá)")
     default_value: str = Field(default="", description="Default value từ bddefaults.xml (nếu biết)")
-    location_type: str = Field(
-        description="Vị trí config trong XML: 'direct_P' | 'InstanceData' | 'MaskValueString' | 'attribute'",
+    location_type: Literal["direct_P", "InstanceData", "MaskValueString", "attribute"] = Field(
+        description="Vị trí config trong XML",
     )
     xpath: str = Field(description="XPath tới element thay đổi")
-    change_type: str = Field(description="'modified' | 'added' | 'removed'")
+    change_type: Literal["modified", "added", "removed"] = Field(
+        description="Loại thay đổi",
+    )
 
 
 class BlockChange(BaseModel):
@@ -36,7 +40,9 @@ class BlockChange(BaseModel):
     block_type: str = Field(description="BlockType")
     mask_type: str = Field(default="", description="MaskType nếu có")
     system_file: str = Field(description="File XML chứa block")
-    change_type: str = Field(description="'added' | 'removed' | 'modified'")
+    change_type: Literal["added", "removed", "modified"] = Field(
+        description="Loại thay đổi block",
+    )
     config_changes: list[ConfigChange] = Field(default_factory=list)
 
 
@@ -69,7 +75,7 @@ class ConfigDiscovery(BaseModel):
     block_type: str = Field(description="BlockType, VD: 'Gain', 'SubSystem'")
     mask_type: str = Field(default="", description="MaskType nếu là TL block, VD: 'TL_Gain'")
     config_name: str = Field(description="Tên config cần check, VD: 'SaturateOnIntegerOverflow'")
-    location_type: str = Field(
+    location_type: Literal["direct_P", "InstanceData", "MaskValueString", "attribute", ""] = Field(
         default="",
         description=(
             "Config nằm ở đâu trong XML block element: "

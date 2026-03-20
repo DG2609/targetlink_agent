@@ -1,0 +1,6 @@
+{
+  "model": "data/model4_CcodeGeneration.slx",
+  "blocks": "data/blocks.json",
+  "rules": "data/rules_hard.json",
+  "model_before": null
+}

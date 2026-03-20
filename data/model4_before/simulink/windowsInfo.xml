@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WindowsInfo>
+  <Object PropName="BdWindowsInfo" ObjectID="1" ClassName="Simulink.BDWindowsInfo">
+    <Object PropName="WindowsInfo" ObjectID="2" ClassName="Simulink.WindowInfo">
+      <P Name="IsActive" Class="logical">1</P>
+      <P Name="Location" Class="double">[475.0, 184.0, 1224.0, 721.0]</P>
+      <Object PropName="ModelBrowserInfo" ObjectID="3" ClassName="Simulink.ModelBrowserInfo">
+        <P Name="Visible" Class="logical">1</P>
+        <P Name="DockPosition" Class="char">Left</P>
+        <P Name="Width" Class="int32">50</P>
+        <P Name="Height" Class="int32">50</P>
+        <P Name="Filter" Class="int32">9</P>
+        <P Name="Minimized" Class="char">On</P>
+      </Object>
+      <Object PropName="ExplorerBarInfo" ObjectID="4" ClassName="Simulink.ExplorerBarInfo">
+        <P Name="Visible" Class="logical">1</P>
+      </Object>
+      <Array PropName="EditorsInfo" Type="Simulink.EditorInfo" Dimension="1*2">
+        <Object ObjectID="5">
+          <P Name="IsActive" Class="logical">1</P>
+          <P Name="IsTabbed" Class="logical">1</P>
+          <P Name="ViewObjType" Class="char">SimulinkTopLevel</P>
+          <P Name="LoadSaveID" Class="char">0</P>
+          <P Name="Extents" Class="double">[1108.0, 479.0]</P>
+          <P Name="ZoomFactor" Class="double">1.0</P>
+          <P Name="Offset" Class="double">[357.67578125, 32.0]</P>
+          <P Name="SceneRectInView" Class="double">[357.67578125, 32.0, 1108.0, 479.0]</P>
+        </Object>
+        <Object ObjectID="6">
+          <P Name="IsActive" Class="logical">0</P>
+          <P Name="IsTabbed" Class="logical">0</P>
+          <P Name="ViewObjType" Class="char">SimulinkSubsys</P>
+          <P Name="LoadSaveID" Class="char">6</P>
+          <P Name="Extents" Class="double">[1807.0, 805.0]</P>
+          <P Name="ZoomFactor" Class="double">1.0</P>
+          <P Name="Offset" Class="double">[123.79999999999768, -33.599999999999966]</P>
+          <P Name="SceneRectInView" Class="double">[123.79999999999768, -33.599999999999966, 1445.6, 644.0]</P>
+        </Object>
+      </Array>
+      <Array PropName="DockComponentsInfo" Type="Simulink.DockComponentInfo" Dimension="1*2">
+        <Object ObjectID="7">
+          <P Name="Type" Class="char">GLUE2:PropertyInspector</P>
+          <P Name="ID" Class="char">Property Inspector</P>
+          <P Name="Visible" Class="logical">1</P>
+          <P Name="CreateCallback" Class="char"/>
+          <P Name="UserData" Class="char"/>
+          <P Name="Floating" Class="logical">0</P>
+          <P Name="DockPosition" Class="char">Right</P>
+          <P Name="Width" Class="int32">640</P>
+          <P Name="Height" Class="int32">480</P>
+          <P Name="Minimized" Class="char">On</P>
+        </Object>
+        <Object ObjectID="8">
+          <P Name="Type" Class="char">GLUE2:SpreadSheet</P>
+          <P Name="ID" Class="char">ModelData</P>
+          <P Name="Visible" Class="logical">0</P>
+          <P Name="CreateCallback" Class="char">DataView.createSpreadSheetComponent</P>
+          <P Name="UserData" Class="char"/>
+          <P Name="Floating" Class="logical">0</P>
+          <P Name="DockPosition" Class="char">Bottom</P>
+          <P Name="Width" Class="int32">640</P>
+          <P Name="Height" Class="int32">480</P>
+          <P Name="Minimized" Class="char">Off</P>
+        </Object>
+      </Array>
+      <P Name="WindowState" Class="char">AAAA/wAAAAD9AAAAAwAAAAAAAAC9AAAB+PwCAAAAA/sAAAAWAEQAbwBjAGsAVwBpAGQAZwBlAHQAMwEAAAAxAAAB+AAAAAAAAAAA+wAAABYARABvAGMAawBXAGkAZABnAGUAdAA0AAAAAAD/////AAAAAAAAAAD8AAAAAP////8AAAAAAP////r/////AgAAAAH7AAAAUgBHAEwAVQBFADIAIAB0AHIAZQBlACAAYwBvAG0AcABvAG4AZQBuAHQALwBHAEwAVQBFADIAIAB0AHIAZQBlACAAYwBvAG0AcABvAG4AZQBuAHQAAAAAAP////8AAABjAP///wAAAAEAAAAAAAAAAPwCAAAAAfsAAABUAEcATABVAEUAMgA6AFAAcgBvAHAAZQByAHQAeQBJAG4AcwBwAGUAYwB0AG8AcgAvAFAAcgBvAHAAZQByAHQAeQAgAEkAbgBzAHAAZQBjAHQAbwByAAAAAAD/////AAABrAD///8AAAADAAAAAAAAAAD8AQAAAAH8AAAAAP////8AAAAAAP////r/////AQAAAAH7AAAANgBHAEwAVQBFADIAOgBTAHAAcgBlAGEAZABTAGgAZQBlAHQALwBNAG8AZABlAGwARABhAHQAYQAAAAAA/////wAAARoA////AAAEegAAAhwAAAABAAAAAgAAAAEAAAAC/AAAAAMAAAAAAAAAAQAAADYAYwBvAGwAbABhAHAAcwBpAGIAbABlAFAAYQBuAGUAbABUAG8AbwBsAEIAYQByAEwAZQBmAHQDAAAAAP////8AAAAAAAAAAAAAAAEAAAABAAAAOABjAG8AbABsAGEAcABzAGkAYgBsAGUAUABhAG4AZQBsAFQAbwBvAGwAQgBhAHIAUgBpAGcAaAB0AwAAAAD/////AAAAAAAAAAAAAAADAAAAAQAAADoAYwBvAGwAbABhAHAAcwBpAGIAbABlAFAAYQBuAGUAbABUAG8AbwBsAEIAYQByAEIAbwB0AHQAbwBtAAAAAAD/////AAAAAAAAAAA=</P>
+      <Array PropName="PersistedApps" Type="Cell" Dimension="0*1"/>
+      <P Name="WindowUuid" Class="char">064936a9-08cf-4a3b-9846-24b9fc8867c3</P>
+    </Object>
+    <P Name="BDUuid" Class="char">f83409b3-4de8-4482-9312-f7d97d233577</P>
+  </Object>
+</WindowsInfo>

@@ -93,7 +93,7 @@ class ValidationResult(BaseModel):
         >>> r = ValidationResult(
         ...     rule_id="R001", status=ValidationStatus.WRONG_RESULT,
         ...     actual_result={"total_blocks": 5, "pass_count": 5, "fail_count": 0},
-        ...     expected_result={"total_blocks": 19, "pass": 18, "fail": 1},
+        ...     expected_result={"total_blocks": 19, "pass_count": 18, "fail_count": 1},
         ...     failed_test_case="data/model4_CcodeGeneration.slx",
         ...     test_cases_passed=0, test_cases_total=1,
         ...     code_file_path="generated_checks/check_rule_R001.py",
@@ -113,7 +113,7 @@ class ValidationResult(BaseModel):
                 "rule_id": "R001",
                 "status": "WRONG_RESULT",
                 "actual_result": {"total_blocks": 5, "pass_count": 5, "fail_count": 0},
-                "expected_result": {"total_blocks": 19, "pass": 18, "fail": 1},
+                "expected_result": {"total_blocks": 19, "pass_count": 18, "fail_count": 1},
                 "failed_test_case": "data/model4_CcodeGeneration.slx",
                 "test_cases_passed": 0,
                 "test_cases_total": 1,
@@ -141,8 +141,8 @@ class ValidationResult(BaseModel):
     )
     expected_result: Optional[dict] = Field(
         default=None,
-        description="Kết quả mong đợi {total_blocks, pass, fail}",
-        examples=[None, {"total_blocks": 19, "pass": 18, "fail": 1}],
+        description="Kết quả mong đợi {total_blocks, pass_count, fail_count}",
+        examples=[None, {"total_blocks": 19, "pass_count": 18, "fail_count": 1}],
     )
     failed_test_case: Optional[str] = Field(
         default=None,

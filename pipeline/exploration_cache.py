@@ -12,6 +12,8 @@ Pattern từ reference codebase (agentic/agent/subagents.py):
 
 import threading
 
+from config import settings
+
 
 class ExplorationCache:
     """Cache exploration results across rules for same model.
@@ -23,6 +25,8 @@ class ExplorationCache:
       - Block findings per type
       - Config query results
     """
+
+    MAX_ENTRIES = 50  # Giới hạn tổng số entries (blocks + configs) để tránh memory bloat
 
     def __init__(self):
         self._lock = threading.Lock()
@@ -37,11 +41,13 @@ class ExplorationCache:
 
     def store_blocks(self, block_type: str, result: str) -> None:
         with self._lock:
-            self._blocks[block_type] = result
+            if len(self._blocks) + len(self._configs) < self.MAX_ENTRIES:
+                self._blocks[block_type] = result
 
     def store_config(self, block_type: str, config_name: str, result: str) -> None:
         with self._lock:
-            self._configs[f"{block_type}:{config_name}"] = result
+            if len(self._blocks) + len(self._configs) < self.MAX_ENTRIES:
+                self._configs[f"{block_type}:{config_name}"] = result
 
     def get_summary_for_agent(self, block_type: str, config_name: str) -> str:
         """Generate condensed cache summary for Agent 2 context.
@@ -56,17 +62,17 @@ class ExplorationCache:
                 "## KNOWN FROM PREVIOUS RULES (cùng model, đã verified):",
                 "",
                 "### Model Hierarchy:",
-                _truncate(self._model_hierarchy, 2000),
+                _truncate(self._model_hierarchy, settings.CACHE_SUMMARY_LIMIT),
             ]
 
             if block_type in self._blocks:
                 parts.append(f"\n### {block_type} Blocks Found:")
-                parts.append(_truncate(self._blocks[block_type], 3000))
+                parts.append(_truncate(self._blocks[block_type], settings.CACHE_SUMMARY_LIMIT))
 
             key = f"{block_type}:{config_name}"
             if key in self._configs:
                 parts.append(f"\n### Config '{config_name}' on {block_type}:")
-                parts.append(_truncate(self._configs[key], 2000))
+                parts.append(_truncate(self._configs[key], settings.CACHE_SUMMARY_LIMIT))
 
             parts.append(
                 "\n→ SKIP build_model_hierarchy() và find_blocks_recursive() "
@@ -133,7 +139,7 @@ def extract_exploration_summary(tools: list) -> str:
         if not name or not result:
             continue
 
-        result_short = _truncate(result, 2000)
+        result_short = _truncate(result, settings.CACHE_SUMMARY_LIMIT)
 
         if name == "build_model_hierarchy":
             parts.append(f"\n### Model Hierarchy:\n{result_short}")

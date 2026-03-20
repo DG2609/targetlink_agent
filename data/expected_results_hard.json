@@ -1,0 +1,24 @@
+[
+  {
+    "rule_id": "R003",
+    "test_cases": [
+      {
+        "model_path": "data/model4_CcodeGeneration.slx",
+        "expected_total_blocks": 6,
+        "expected_pass": 0,
+        "expected_fail": 6
+      }
+    ]
+  },
+  {
+    "rule_id": "R004",
+    "test_cases": [
+      {
+        "model_path": "data/model4_CcodeGeneration.slx",
+        "expected_total_blocks": 35,
+        "expected_pass": 1,
+        "expected_fail": 34
+      }
+    ]
+  }
+]

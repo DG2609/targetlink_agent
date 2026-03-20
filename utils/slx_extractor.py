@@ -12,21 +12,27 @@ Agent KHÔNG được đọc toàn bộ tree — phải dùng tools để khám 
 """
 
 import atexit
+import threading
 import zipfile
 import tempfile
 import shutil
 from pathlib import Path
 
 
-# Cache: tránh extract lại cùng 1 file nếu chạy nhiều rules
+# Thread-safe cache: tránh extract lại cùng 1 file nếu chạy nhiều rules
+_lock = threading.Lock()
 _extract_cache: dict[str, str] = {}
+# Chỉ track thư mục temp (do extract_slx tạo) — KHÔNG track thư mục user cung cấp
+_temp_dirs: set[str] = set()
 
 
 def _cleanup_temp_dirs():
-    """Dọn tất cả thư mục temp đã extract khi process kết thúc."""
-    for path in _extract_cache.values():
-        shutil.rmtree(path, ignore_errors=True)
-    _extract_cache.clear()
+    """Dọn chỉ thư mục TEMP đã extract, không xoá thư mục user cung cấp."""
+    with _lock:
+        for path in _temp_dirs:
+            shutil.rmtree(path, ignore_errors=True)
+        _temp_dirs.clear()
+        _extract_cache.clear()
 
 
 atexit.register(_cleanup_temp_dirs)
@@ -50,15 +56,27 @@ def extract_slx(slx_path: str) -> str:
     """
     slx_path = str(Path(slx_path).resolve())
 
-    # Cache hit
-    if slx_path in _extract_cache:
-        cached = _extract_cache[slx_path]
-        if Path(cached).exists():
-            return cached
+    # Cache hit (thread-safe)
+    with _lock:
+        if slx_path in _extract_cache:
+            cached = _extract_cache[slx_path]
+            if Path(cached).exists():
+                return cached
 
     slx = Path(slx_path)
     if not slx.exists():
         raise FileNotFoundError(f"File .slx không tồn tại: {slx_path}")
+
+    # Nếu path là thư mục đã giải nén (có chứa XML) → trả về trực tiếp
+    # KHÔNG thêm vào _temp_dirs vì đây là thư mục user cung cấp, không được xoá
+    if slx.is_dir():
+        xml_files = list(slx.rglob("*.xml"))
+        if xml_files:
+            result = str(slx.resolve())
+            with _lock:
+                _extract_cache[slx_path] = result
+            return result
+        raise ValueError(f"Thư mục không chứa file XML nào: {slx_path}")
 
     # Extract vào temp dir
     tmp_dir = Path(tempfile.mkdtemp(prefix="targetlink_slx_"))
@@ -66,9 +84,14 @@ def extract_slx(slx_path: str) -> str:
     try:
         with zipfile.ZipFile(slx, "r") as zf:
             # Zip Slip protection: validate paths trước khi extract
+            resolved_tmp = tmp_dir.resolve()
             for info in zf.infolist():
                 target = (tmp_dir / info.filename).resolve()
-                if not str(target).startswith(str(tmp_dir.resolve())):
+                # So sánh bằng Path.is_relative_to() (Python 3.9+) thay vì startswith
+                # tránh false positive trên Windows do backslash vs forward slash
+                try:
+                    target.relative_to(resolved_tmp)
+                except ValueError:
                     shutil.rmtree(tmp_dir, ignore_errors=True)
                     raise ValueError(f"Zip Slip detected: {info.filename}")
             zf.extractall(tmp_dir)
@@ -83,5 +106,7 @@ def extract_slx(slx_path: str) -> str:
         raise ValueError(f"Không tìm thấy file XML nào trong {slx_path}")
 
     result = str(tmp_dir.resolve())
-    _extract_cache[slx_path] = result
+    with _lock:
+        _extract_cache[slx_path] = result
+        _temp_dirs.add(result)
     return result

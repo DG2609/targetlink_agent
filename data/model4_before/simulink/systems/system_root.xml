@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version='1.0' encoding='UTF-8'?>
 <System>
   <P Name="Location">[475, 184, 1699, 905]</P>
   <P Name="Open">on</P>
@@ -77,12 +77,11 @@ To Constant</P>
     <P Name="Position">[1300, 265, 1330, 295]</P>
     <P Name="ZOrder">18</P>
     <P Name="Gain">486</P>
-    <P Name="SaturateOnIntegerOverflow">on</P>
     <Port>
       <P Name="PortNumber">1</P>
       <P Name="Name">Sunny</P>
     </Port>
-  </Block>
+  <P Name="SaturateOnIntegerOverflow">on</P></Block>
   <Block BlockType="SubSystem" Name="Highpass Filter" SID="32">
     <P Name="Tag">FilterWizardSubSystem</P>
     <P Name="Ports">[1, 1]</P>
@@ -95,7 +94,7 @@ To Constant</P>
     <P Name="ContentPreviewEnabled">on</P>
     <System Ref="system_32"/>
   </Block>
-  <Block BlockType="Logic" Name="Logical&#xA;Operator" SID="70">
+  <Block BlockType="Logic" Name="Logical&#10;Operator" SID="70">
     <P Name="Ports">[2, 1]</P>
     <P Name="Position">[1195, 257, 1225, 288]</P>
     <P Name="ZOrder">20</P>
@@ -118,14 +117,14 @@ To Constant</P>
     </Port>
     <System Ref="system_6"/>
   </Block>
-  <Block BlockType="Sum" Name="Sum of&#xA;Elements" SID="64">
+  <Block BlockType="Sum" Name="Sum of&#10;Elements" SID="64">
     <P Name="Ports">[1, 1]</P>
     <P Name="Position">[955, 300, 985, 330]</P>
     <P Name="ZOrder">14</P>
     <P Name="IconShape">rectangular</P>
     <P Name="Inputs">+</P>
   </Block>
-  <Block BlockType="Sum" Name="Sum of&#xA;Elements1" SID="65">
+  <Block BlockType="Sum" Name="Sum of&#10;Elements1" SID="65">
     <P Name="Ports">[1, 1]</P>
     <P Name="Position">[955, 220, 985, 250]</P>
     <P Name="ZOrder">15</P>
@@ -159,4 +158,140 @@ To Constant</P>
     <P Name="Position">[1405, 273, 1435, 287]</P>
     <P Name="ZOrder">21</P>
   </Block>
+  <Line>
+    <P Name="ZOrder">9</P>
+    <P Name="Src">1#out:1</P>
+    <P Name="Points">[58, 0]</P>
+    <Branch>
+      <P Name="ZOrder">14</P>
+      <P Name="Points">[0, 80]</P>
+      <P Name="Dst">32#in:1</P>
+    </Branch>
+    <Branch>
+      <P Name="ZOrder">10</P>
+      <P Name="Dst">6#in:1</P>
+    </Branch>
+  </Line>
+  <Line>
+    <P Name="ZOrder">13</P>
+    <P Name="Src">32#out:1</P>
+    <P Name="Dst">59#in:1</P>
+  </Line>
+  <Line>
+    <P Name="Name">HPF Power</P>
+    <P Name="ZOrder">21</P>
+    <P Name="Labels">[0, 0]</P>
+    <P Name="Src">59#out:1</P>
+    <P Name="Dst">60#in:1</P>
+  </Line>
+  <Line>
+    <P Name="Name">LPF Power</P>
+    <P Name="ZOrder">22</P>
+    <P Name="Labels">[0, 0]</P>
+    <P Name="Src">6#out:1</P>
+    <P Name="Dst">61#in:1</P>
+  </Line>
+  <Line>
+    <P Name="ZOrder">23</P>
+    <P Name="Src">60#out:1</P>
+    <P Name="Dst">62#in:1</P>
+  </Line>
+  <Line>
+    <P Name="ZOrder">24</P>
+    <P Name="Src">61#out:1</P>
+    <P Name="Dst">63#in:1</P>
+  </Line>
+  <Line>
+    <P Name="ZOrder">25</P>
+    <P Name="Src">62#out:1</P>
+    <P Name="Dst">64#in:1</P>
+  </Line>
+  <Line>
+    <P Name="ZOrder">26</P>
+    <P Name="Src">63#out:1</P>
+    <P Name="Dst">65#in:1</P>
+  </Line>
+  <Line>
+    <P Name="ZOrder">27</P>
+    <P Name="Src">64#out:1</P>
+    <P Name="Points">[15, 0; 0, -30]</P>
+    <P Name="Dst">66#in:2</P>
+  </Line>
+  <Line>
+    <P Name="ZOrder">28</P>
+    <P Name="Src">65#out:1</P>
+    <P Name="Points">[15, 0]</P>
+    <Branch>
+      <P Name="ZOrder">34</P>
+      <P Name="Points">[0, 35]</P>
+      <P Name="Dst">66#in:1</P>
+    </Branch>
+    <Branch>
+      <P Name="ZOrder">33</P>
+      <P Name="Points">[0, -15]</P>
+      <P Name="Dst">69#in:1</P>
+    </Branch>
+  </Line>
+  <Line>
+    <P Name="ZOrder">29</P>
+    <P Name="Src">66#out:1</P>
+    <P Name="Dst">67#in:1</P>
+  </Line>
+  <Line>
+    <P Name="Name">Sunny</P>
+    <P Name="ZOrder">41</P>
+    <P Name="Labels">[1, 1]</P>
+    <P Name="Src">68#out:1</P>
+    <P Name="Dst">71#in:1</P>
+  </Line>
+  <Line>
+    <P Name="ZOrder">35</P>
+    <P Name="Src">69#out:1</P>
+    <P Name="Points">[58, 0; 0, 45]</P>
+    <P Name="Dst">70#in:1</P>
+  </Line>
+  <Line>
+    <P Name="ZOrder">36</P>
+    <P Name="Src">67#out:1</P>
+    <P Name="Dst">70#in:2</P>
+  </Line>
+  <Line>
+    <P Name="ZOrder">37</P>
+    <P Name="Src">70#out:1</P>
+    <P Name="Points">[23, 0; 0, 5]</P>
+    <P Name="Dst">68#in:1</P>
+  </Line>
+  <Annotation SID="73">
+    <P Name="Name">&lt;!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0//EN" "http://www.w3.org/TR/REC-html40/strict.dtd"&gt;
+&lt;html&gt;&lt;head&gt;&lt;meta name="qrichtext" content="1" /&gt;&lt;style type="text/css"&gt;
+p, li { white-space: pre-wrap; }
+&lt;/style&gt;&lt;/head&gt;&lt;body align="left" style=" font-family:'Helvetica'; font-size:10px; font-weight:400; font-style:normal;"&gt;
+&lt;p align="left" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"&gt;&lt;span style=" font-size:12px;"&gt;To generate code, select &lt;/span&gt;&lt;span style=" font-size:12px; font-weight:600;"&gt;Build&lt;/span&gt;&lt;span style=" font-size:12px;"&gt; in the &lt;/span&gt;&lt;span style=" font-size:12px; font-weight:600;"&gt;Deployment&lt;/span&gt;&lt;span style=" font-size:12px;"&gt; section of the &lt;/span&gt;&lt;span style=" font-size:12px; font-weight:600;"&gt;Hardware&lt;/span&gt;&lt;span style=" font-size:12px;"&gt; tab. &lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</P>
+    <P Name="Position">[600, 157, 1029, 173]</P>
+    <P Name="InternalMargins">[0, 0, 0, 0]</P>
+    <P Name="Interpreter">rich</P>
+    <P Name="ZOrder">-1</P>
+  </Annotation>
+  <Annotation SID="72">
+    <P Name="Name">&lt;!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0//EN" "http://www.w3.org/TR/REC-html40/strict.dtd"&gt;
+&lt;html&gt;&lt;head&gt;&lt;meta name="qrichtext" content="1" /&gt;&lt;style type="text/css"&gt;
+p, li { white-space: pre-wrap; }
+&lt;/style&gt;&lt;/head&gt;&lt;body align="left" style=" font-family:'Helvetica'; font-size:10px; font-weight:400; font-style:normal;"&gt;
+&lt;p align="left" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"&gt;&lt;span style=" font-size:18px; font-weight:600;"&gt;C Code Generation for Hardware Targeting&lt;/span&gt;&lt;/p&gt;
+&lt;p align="left" style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-size:18px; font-weight:600;"&gt;&lt;br /&gt;&lt;/p&gt;
+&lt;p align="left" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"&gt;&lt;span style=" font-size:12px;"&gt;This model is modified to target an Arduino Uno embedded system.&lt;/span&gt;&lt;/p&gt;
+&lt;p align="left" style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"&gt;&lt;span style=" font-size:12px;"&gt;You will need to install the Simulink Support Package for Arduino Hardware.  &lt;/span&gt;&lt;/p&gt;
+&lt;p align="left" style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px; font-size:12px;"&gt;&lt;br /&gt;&lt;/p&gt;
+&lt;p align="left" style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"&gt;&lt;br /&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</P>
+    <P Name="Position">[600, 67, 1010, 165]</P>
+    <P Name="InternalMargins">[0, 0, 0, 0]</P>
+    <P Name="Interpreter">rich</P>
+    <P Name="ZOrder">-10</P>
+  </Annotation>
+  <Annotation SID="74">
+    <P Name="Name">Copyright 2020 The MathWorks, Inc.</P>
+    <P Name="Position">[803, 385, 967, 399]</P>
+    <P Name="InternalMargins">[0, 0, 0, 0]</P>
+    <P Name="ZOrder">-11</P>
+  </Annotation>
 </System>

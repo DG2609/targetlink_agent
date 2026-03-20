@@ -31,17 +31,18 @@ def validate_rule_input(rule: ParsedRule, model_dir: str) -> list[str]:
     systems_dir = Path(model_dir) / "simulink" / "systems"
     if not systems_dir.exists():
         messages.append(f"ERROR: Thư mục systems không tồn tại: {systems_dir}")
-        return messages
 
     # Check 2: Có file system_*.xml nào không
-    system_files = list(systems_dir.glob("system_*.xml"))
-    if not system_files:
-        messages.append(f"ERROR: Không tìm thấy file system_*.xml trong {systems_dir}")
-        return messages
+    system_files: list = []
+    if systems_dir.exists():
+        system_files = list(systems_dir.glob("system_*.xml"))
+        if not system_files:
+            messages.append(f"ERROR: Không tìm thấy file system_*.xml trong {systems_dir}")
 
     # Check 3: block_keyword có map tới BlockType/MaskType thực tế không
     # Skip check nếu block_keyword rỗng (config-only rule — hợp lệ)
-    if rule.block_keyword and rule.block_keyword.strip():
+    # Skip check nếu system_files chưa có (check 1/2 đã fail)
+    if system_files and rule.block_keyword and rule.block_keyword.strip():
         from lxml import etree
 
         found_block_types: set[str] = set()

@@ -1,0 +1,10 @@
+[
+  {
+    "rule_id": "R003",
+    "description": "Tất cả Inport block và Outport block trong model phải có OutDataTypeStr được định nghĩa rõ ràng, không được để giá trị mặc định 'Inherit: auto'"
+  },
+  {
+    "rule_id": "R004",
+    "description": "OutDataTypeStr không được chứa từ 'Inherit' trên bất kỳ block nào trong model"
+  }
+]

@@ -1,18 +1,18 @@
 ---
 name: diff-analyzer
-description: Phân tích raw diff giữa 2 model versions → xác định chính xác config nằm ở đâu trong XML. Output structured ConfigDiscovery cho Agent 2 dùng trực tiếp.
+description: Agent 1.5 — phân tích raw diff giữa 2 model versions → xác định chính xác config location trong XML. Output structured ConfigDiscovery (location_type, xpath_pattern, default_value) cho Agent 2 dùng trực tiếp.
 ---
 
 # Diff Analyzer
 
 Phân tích kết quả diff giữa 2 phiên bản model TargetLink → xác định ground truth cho config location.
 
-Bạn nhận raw diff results (danh sách thay đổi XML giữa model before/after) và thông tin rule cần check.
+Nhận raw diff results (danh sách thay đổi XML giữa model before/after) và thông tin rule cần check.
 Nhiệm vụ: **tổng quát hoá** từ thay đổi cụ thể trên 1-2 blocks → pattern áp dụng cho TẤT CẢ blocks cùng type.
 
 ## Input
 
-Bạn nhận context gồm:
+Input context gồm:
 - `block_type`: BlockType cần check (VD: "Gain")
 - `config_name`: Config cần check (VD: "SaturateOnIntegerOverflow")
 - `block_mapping`: Thông tin block mapping từ Agent 1
@@ -64,7 +64,7 @@ Dùng để verify kết quả: block nào đổi, giá trị cũ/mới.
 
 ## Output
 
-Bạn output **ConfigDiscovery** structured object:
+Output **ConfigDiscovery** structured object:
 
 - **block_type**: BlockType hoặc MaskType mà rule cần check
 - **mask_type**: Nếu block dùng MaskType (TL blocks), ghi MaskType ở đây
@@ -90,13 +90,15 @@ Từ raw diff, xem config thay đổi ở layer nào:
 ### Bước 2: Tổng quát hoá XPath
 
 Diff cho XPath cụ thể cho 1 block (VD: `.//Block[@SID='68']/P[@Name='X']`).
-Bạn cần tổng quát thành pattern cho TẤT CẢ blocks cùng type:
+Cần tổng quát thành pattern cho TẤT CẢ blocks cùng type — vì Agent 2 dùng pattern này để scan toàn bộ model, không chỉ block trong diff:
 
 - Direct P: `.//Block[@BlockType='{block_type}']/P[@Name='{config_name}']`
 - InstanceData: `.//Block[@BlockType='{block_type}']/InstanceData/P[@Name='{config_name}']`
 - MaskType blocks: `.//Block[P[@Name='MaskType' and text()='{mask_type}']]/P[@Name='{config_name}']`
 
 ### Bước 3: Xác định default value
+
+Default value quyết định kết quả check — Simulink chỉ lưu config khi khác default, nên blocks KHÔNG có config trong XML vẫn có giá trị (= default).
 
 **Quan trọng — 2 loại blocks:**
 
