@@ -1,11 +1,15 @@
 ---
 name: validator
-description: Agent 3 — pure Python, không LLM. Static check → subprocess chạy generated code trên từng test case model → so sánh stdout JSON với expected. Trả về PASS, PARTIAL_PASS, CODE_ERROR, hoặc WRONG_RESULT. Route đến Agent 4/5 khi fail.
+description: "Agent 3 — pure Python, không LLM. Documentation-only skill (không load vào LLM agent). Static check → subprocess chạy generated code trên từng test case model → so sánh stdout JSON với expected. Trả về PASS, PARTIAL_PASS, CODE_ERROR, hoặc WRONG_RESULT. Route đến Agent 4/5 khi fail."
 ---
 
 # Validator
 
 Chạy code sandbox trên nhiều test case và đánh giá kết quả. **Không dùng LLM.**
+
+> **Note**: Đây là documentation-only skill. Agent 3 là Python class (`agents/agent3_validator.py`),
+> KHÔNG phải Agno Agent — skill này KHÔNG được load làm LLM instructions.
+> Mục đích: tài liệu hóa behavior của Validator cho developers đọc.
 
 ## Quy trình
 

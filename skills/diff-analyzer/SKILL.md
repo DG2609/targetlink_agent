@@ -1,9 +1,13 @@
 ---
 name: diff-analyzer
-description: Agent 1.5 — phân tích raw diff giữa 2 model versions → xác định chính xác config location trong XML. Output structured ConfigDiscovery (location_type, xpath_pattern, default_value) cho Agent 2 dùng trực tiếp.
+description: "DEPRECATED — replaced by pipeline/diff_analyzer.py (pure Python, no LLM). Kept for reference only."
 ---
 
-# Diff Analyzer
+# Diff Analyzer (DEPRECATED)
+
+> **DEPRECATED**: Agent 1.5 đã được thay thế bằng pure Python implementation tại `pipeline/diff_analyzer.py`.
+> File agent declaration `agents/agent1_5_diff_analyzer.py` cũng đã deprecated.
+> Skill này giữ lại làm tài liệu tham khảo — KHÔNG được pipeline sử dụng.
 
 Phân tích kết quả diff giữa 2 phiên bản model TargetLink → xác định ground truth cho config location.
 

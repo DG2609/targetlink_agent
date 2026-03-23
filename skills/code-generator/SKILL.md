@@ -10,6 +10,9 @@ Sinh Python script kiểm tra rule dựa trên cấu trúc XML thực tế.
 Agent agentic — tự chủ khám phá XML tree qua tools, lặp nhiều bước cho đến khi hiểu đúng cấu trúc.
 KHÔNG có memory riêng, nhưng có thể nhận:
 - **Cross-rule cache**: nếu context chứa "KNOWN FROM PREVIOUS RULES" → model hierarchy/blocks đã verified, SKIP explore lại
+  - Format: text block gồm hierarchy summary, verified block types, config locations đã biết
+  - Khi có cache → **SKIP Bước 0** (hierarchy) và có thể skip Bước 1 nếu block type đã cached
+  - Vẫn cần verify config cụ thể cho rule mới (Bước 2+)
 
 ## Tools được cấp
 
@@ -115,6 +118,66 @@ trace_connections("{block_sid}")
 write_python_file("check_rule_{rule_id}.py", code_content)
 ```
 
+## Chiến lược theo complexity_level
+
+### Level 1-2 (default — flat config check)
+Dùng template Config Check / Forbidden Block / Config-Only từ `references/templates.md`. Đã proven, không cần thay đổi.
+
+### Level 3 (cross-subsystem — hierarchy-aware)
+Khi `complexity_level >= 3`, code sinh ra **BẮT BUỘC** import `utils.hierarchy_utils`:
+```python
+from utils.hierarchy_utils import walk_blocks, build_subsystem_map
+```
+
+Thay vì iterate `glob("system_*.xml")` + `find_blocks()` per file, dùng:
+```python
+blocks = walk_blocks(model_dir, "{BLOCK_IDENTIFIER}")
+# Mỗi block có: name, sid, block_type, block_path, depth, parent_subsystem
+```
+
+Output `block_path` phải là **full hierarchy path** (VD: "Root/Lowpass Filter/s(1)"), KHÔNG phải "system_6/s(1)".
+
+Nếu rule có `depth_filter` (VD: "chỉ ở root level") → filter blocks by `depth`:
+```python
+blocks = [b for b in blocks if b["depth"] == 0]  # chỉ root level
+```
+
+### Level 4 (connection-based)
+Import thêm:
+```python
+from utils.hierarchy_utils import get_connections, trace_cross_subsystem
+```
+
+**Cùng layer** — trace connections trong 1 system file:
+```python
+conns = get_connections(model_dir, block["system_file"], block["sid"])
+# conns = {"incoming": [...], "outgoing": [...]}
+```
+
+**Xuyên layer** — trace signal xuyên SubSystem boundary (VD: Bus Creator ở depth 0 nối Bus Selector ở depth 4-5):
+```python
+trace = trace_cross_subsystem(model_dir, block["system_file"], block["sid"], "outgoing", max_depth=10)
+# Mỗi step: block_name, block_sid, block_type, block_path, depth, crossing
+# crossing: "none" | "into_subsystem" | "out_to_parent"
+target_found = any(s["block_type"] == "BusSelector" for s in trace)
+```
+`trace_cross_subsystem` tự follow qua Inport/Outport port-mapping khi gặp SubSystem boundary.
+
+**Lưu ý**: Connection tracing chỉ follow `<Line>` elements. Goto/From blocks (implicit routing) chưa được hỗ trợ — nếu trace trống bất ngờ, check Goto/From.
+
+### Level 5 (contextual)
+Import thêm:
+```python
+from utils.hierarchy_utils import get_parent_subsystem_info
+```
+Lấy parent context cho mỗi block:
+```python
+parent = get_parent_subsystem_info(model_dir, block["system_file"])
+# Check nếu parent matches rule context
+```
+
+Xem templates Level 3-5 trong `references/templates.md`.
+
 ## Stdout JSON — BẮT BUỘC đúng format
 
 Code sinh ra PHẢI output **ĐÚNG format JSON này** ra stdout:
@@ -179,7 +242,7 @@ Chọn template phù hợp, thay thế `{PLACEHOLDERS}`, rồi dùng `write_pyth
 - VD: `BlockType="SubSystem"` + `MaskType="TL_Inport"` → đây là TL_Inport, KHÔNG phải SubSystem
 - Nếu `find_blocks_recursive` trả về ít blocks → thử `auto_discover_blocks` với keyword rộng hơn
 - Config của MaskType blocks thường nằm trong `InstanceData` hoặc `MaskValueString`, KHÔNG phải direct `<P>` — lý do: TL blocks dùng mask mechanism khác standard Simulink
-- `get_block_config` đã handle cả direct `<P>` lẫn `InstanceData/<P>`, nhưng `MaskValueString` cần xử lý riêng (parse pipe-separated string)
+- `get_block_config` đã handle cả 3 vị trí: direct `<P>`, `InstanceData/<P>`, VÀ `MaskValueString` (pipe-separated) — KHÔNG cần xử lý riêng
 
 ## Quy tắc (Agent 3 kiểm tra tự động)
 

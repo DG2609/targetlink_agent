@@ -119,6 +119,7 @@ class ParsedRule(BaseModel):
                 "target_block_types": [],
                 "scope": "all_instances",
                 "scope_filter": "",
+                "complexity_level": 1,
             },
             {
                 "rule_id": "R002",
@@ -132,6 +133,7 @@ class ParsedRule(BaseModel):
                 "target_block_types": [],
                 "scope": "all_instances",
                 "scope_filter": "",
+                "complexity_level": 1,
             },
         ]
     })
@@ -184,4 +186,19 @@ class ParsedRule(BaseModel):
         default="",
         description="Pattern lọc khi scope != 'all_instances'",
         examples=["", "SubSystem1/*"],
+    )
+
+    # Complexity
+    complexity_level: int = Field(
+        default=1,
+        ge=1,
+        le=5,
+        description=(
+            "Độ phức tạp rule: "
+            "1-2 = flat config check (1 block type, 1 config), "
+            "3 = cross-subsystem (cần hierarchy path, depth filter), "
+            "4 = connection-based (cần trace signal flow), "
+            "5 = contextual (phụ thuộc parent subsystem context)"
+        ),
+        examples=[1, 2, 3, 4, 5],
     )

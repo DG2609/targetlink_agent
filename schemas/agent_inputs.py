@@ -18,80 +18,6 @@ from pydantic import BaseModel, Field
 from typing import Optional
 
 
-# ── Agent 1: Data Reader ────────────────────────────
-
-
-class Agent1Input(BaseModel):
-    """Input cho Agent 1 (Data Reader).
-
-    Example:
-        >>> inp = Agent1Input(block_keyword="gain", config_name="SaturateOnIntegerOverflow")
-        >>> print(inp.to_prompt())
-        block_keyword: gain
-        config_name: SaturateOnIntegerOverflow
-    """
-
-    block_keyword: str = Field(
-        description="Keyword tìm block (lowercase), từ ParsedRule.block_keyword",
-        examples=["gain", "inport", "abs", "sum", "delay"],
-    )
-    config_name: str = Field(
-        description="Tên config cần check, từ ParsedRule.config_name",
-        examples=["SaturateOnIntegerOverflow", "OutDataTypeStr", "PortDimensions"],
-    )
-
-    def to_prompt(self) -> str:
-        return (
-            f"block_keyword: {self.block_keyword}\n"
-            f"config_name: {self.config_name}"
-        )
-
-
-# ── Agent 1.5: Diff Analyzer ────────────────────────
-
-
-class Agent1_5Input(BaseModel):
-    """Input cho Agent 1.5 (Diff Analyzer).
-
-    Example:
-        >>> inp = Agent1_5Input(
-        ...     block_type="Gain",
-        ...     config_name="SaturateOnIntegerOverflow",
-        ...     name_ui="Gain",
-        ...     config_map_analysis="SaturateOnIntegerOverflow trong <P>...",
-        ...     diff_context='{"config_changes": [...], "bddefaults": {...}}'
-        ... )
-    """
-
-    block_type: str = Field(
-        description="BlockType trong XML, từ BlockMappingData.name_xml",
-        examples=["Gain", "Abs", "SubSystem"],
-    )
-    config_name: str = Field(
-        description="Tên config, từ ParsedRule.config_name",
-        examples=["SaturateOnIntegerOverflow", "OutDataTypeStr"],
-    )
-    name_ui: str = Field(
-        description="Tên UI, từ BlockMappingData.name_ui",
-        examples=["Gain", "Abs"],
-    )
-    config_map_analysis: str = Field(
-        description="Phân tích config từ Agent 1, từ BlockMappingData.config_map_analysis",
-    )
-    diff_context: str = Field(
-        description="Raw JSON diff + bddefaults, từ build_agent_context()",
-    )
-
-    def to_prompt(self) -> str:
-        return (
-            f"block_type: {self.block_type}\n"
-            f"config_name: {self.config_name}\n"
-            f"block_mapping: name_ui={self.name_ui}, "
-            f"config_map_analysis={self.config_map_analysis}\n\n"
-            f"{self.diff_context}"
-        )
-
-
 # ── Agent 2: Code Generator ─────────────────────────
 
 
@@ -192,6 +118,15 @@ class Agent2Input(BaseModel):
         description="Default values từ bddefaults.xml cho block type này (JSON)",
     )
 
+    # Complexity level (từ ParsedRule)
+    complexity_level: int = Field(
+        default=1,
+        description=(
+            "Độ phức tạp rule: 1-2=flat, 3=cross-subsystem, "
+            "4=connection-based, 5=contextual"
+        ),
+    )
+
     # Cross-rule cache (từ rules trước cùng model)
     cache_summary: str = Field(
         default="",
@@ -239,6 +174,8 @@ class Agent2Input(BaseModel):
             context += f"\ntarget_block_types: {self.target_block_types}"
         if self.scope != "all_instances":
             context += f"\nscope: {self.scope}, scope_filter: {self.scope_filter}"
+        if self.complexity_level > 1:
+            context += f"\ncomplexity_level: {self.complexity_level}"
 
         if self.blocks_raw_data:
             context += f"\n\nBLOCKS_DICTIONARY_ENTRY (raw from blocks.json):\n{self.blocks_raw_data}"
@@ -268,6 +205,7 @@ class Agent2Input(BaseModel):
             target_block_types=list(parsed_rule.target_block_types),
             scope=parsed_rule.scope,
             scope_filter=parsed_rule.scope_filter,
+            complexity_level=parsed_rule.complexity_level,
             blocks_raw_data=blocks_raw_data,
             bddefaults_context=bddefaults_context,
         )
@@ -458,15 +396,28 @@ class Agent5Input(BaseModel):
     )
 
     # Ground truth (optional)
+    config_discovery_block_type: Optional[str] = Field(default=None, examples=["Gain"])
+    config_discovery_mask_type: Optional[str] = Field(default=None, examples=["", "TL_Gain"])
+    config_discovery_config_name: Optional[str] = Field(default=None, examples=["SaturateOnIntegerOverflow"])
     config_discovery_location_type: Optional[str] = Field(default=None, examples=["direct_P"])
     config_discovery_xpath_pattern: Optional[str] = Field(default=None)
     config_discovery_default_value: Optional[str] = Field(default=None, examples=["off"])
+    config_discovery_value_format: Optional[str] = Field(default=None, examples=["on/off", "integer"])
     config_discovery_notes: Optional[str] = Field(default=None)
 
     # Knowledge handoff từ Agent 2 (Fix A)
     exploration_summary: str = Field(
         default="",
         description="Exploration log từ Agent 2 (verified knowledge, không cần re-explore)",
+    )
+
+    # Complexity level (từ ParsedRule)
+    complexity_level: int = Field(
+        default=1,
+        description=(
+            "Độ phức tạp rule: 1-2=flat, 3=cross-subsystem, "
+            "4=connection-based, 5=contextual"
+        ),
     )
 
     # Carry forward từ Agent 5 retries trước (Fix B)
@@ -504,6 +455,7 @@ class Agent5Input(BaseModel):
         # Core info
         parts.append(
             f"Rule: {self.rule_id}\n"
+            f"Status: {self.status_value}\n"
             f"File code: {self.code_file_path}\n"
             f"Test case fail: {self.failed_test_case}\n"
             f"Actual result: {self.actual_result}\n"
@@ -511,6 +463,10 @@ class Agent5Input(BaseModel):
             f"Block config analysis: {self.config_map_analysis}\n"
             f"Đây là lần điều tra thứ {self.attempt}"
         )
+
+        # Complexity level
+        if self.complexity_level > 1:
+            parts.append(f"complexity_level: {self.complexity_level}")
 
         # Block-level details from Agent 3 (giúp diagnose chính xác block nào lỗi)
         if self.actual_details:
@@ -550,9 +506,13 @@ class Agent5Input(BaseModel):
         if self.config_discovery_location_type:
             parts.append(
                 f"\nCONFIG DISCOVERY (ground truth from model diff — Agent 1.5):\n"
+                f"  block_type: {self.config_discovery_block_type}\n"
+                f"  mask_type: {self.config_discovery_mask_type}\n"
+                f"  config_name: {self.config_discovery_config_name}\n"
                 f"  location_type: {self.config_discovery_location_type}\n"
                 f"  xpath_pattern: {self.config_discovery_xpath_pattern}\n"
                 f"  default_value: {self.config_discovery_default_value}\n"
+                f"  value_format: {self.config_discovery_value_format}\n"
                 f"  notes: {self.config_discovery_notes}"
             )
 
@@ -605,9 +565,13 @@ class Agent5Input(BaseModel):
         )
         if config_discovery:
             kwargs.update(
+                config_discovery_block_type=config_discovery.block_type,
+                config_discovery_mask_type=config_discovery.mask_type,
+                config_discovery_config_name=config_discovery.config_name,
                 config_discovery_location_type=config_discovery.location_type,
                 config_discovery_xpath_pattern=config_discovery.xpath_pattern,
                 config_discovery_default_value=config_discovery.default_value,
+                config_discovery_value_format=config_discovery.value_format,
                 config_discovery_notes=config_discovery.notes,
             )
         if parsed_rule:
@@ -615,5 +579,6 @@ class Agent5Input(BaseModel):
                 condition=str(parsed_rule.condition.value),
                 expected_value=parsed_rule.expected_value,
                 block_keyword=parsed_rule.block_keyword,
+                complexity_level=parsed_rule.complexity_level,
             )
         return cls(**kwargs)

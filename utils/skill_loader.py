@@ -56,27 +56,6 @@ def load_skill(
     return [body]
 
 
-def load_skill_description(skill_name: str, skills_dir: str = "skills") -> str:
-    """Đọc description từ YAML frontmatter của SKILL.md.
-
-    Returns:
-        Chuỗi description, hoặc "" nếu không tìm thấy.
-    """
-    skill_path = Path(skills_dir) / skill_name / "SKILL.md"
-
-    if not skill_path.exists():
-        return ""
-
-    content = skill_path.read_text(encoding="utf-8")
-    frontmatter = _extract_frontmatter(content)
-
-    for line in frontmatter.splitlines():
-        if line.strip().startswith("description:"):
-            return line.split("description:", 1)[1].strip()
-
-    return ""
-
-
 def list_skill_references(skill_name: str, skills_dir: str = "skills") -> list[str]:
     """Liệt kê tất cả reference files có trong skill.
 

@@ -151,10 +151,11 @@ def find_blocks_with_config(
     Reverse lookup: không cần biết block type, chỉ cần biết config name.
     Dùng khi rule chỉ nói về config mà không nói rõ block nào.
 
-    Tìm ở 3 vị trí:
+    Tìm ở 4 vị trí:
       1. Direct <P Name="config_name">
       2. <InstanceData>/<P Name="config_name">
-      3. Block attribute (hiếm, nhưng có thể xảy ra)
+      3. MaskValueString (pipe-separated, keyed by MaskNames)
+      4. Mask/MaskParameter (newer Simulink format: <Mask>/<MaskParameter>)
 
     Args:
         root: Root element của 1 system_*.xml file.
@@ -178,6 +179,23 @@ def find_blocks_with_config(
             node = instance.find(f"P[@Name='{config_name}']")
             if node is not None:
                 results.append(block)
+                continue
+
+        # MaskValueString (pipe-separated, keyed by MaskNames)
+        mask_names_node = block.find("P[@Name='MaskNames']")
+        if mask_names_node is not None and mask_names_node.text:
+            names = mask_names_node.text.split("|")
+            if config_name in (n.strip() for n in names):
+                results.append(block)
+                continue
+
+        # Mask/MaskParameter (newer Simulink format)
+        mask_elem = block.find("Mask")
+        if mask_elem is not None:
+            mp = mask_elem.find(f"MaskParameter[@Name='{config_name}']")
+            if mp is not None:
+                results.append(block)
+                continue
 
     return results
 
@@ -187,12 +205,13 @@ def get_block_config(
     config_name: str,
     default_value: str | None = None,
 ) -> str | None:
-    """Đọc config value từ block — check cả 4 vị trí.
+    """Đọc config value từ block — check cả 5 vị trí.
 
     Thứ tự tìm:
       1. Direct <P Name="config_name"> (child trực tiếp của Block)
       2. <InstanceData>/<P Name="config_name"> (Reference blocks)
       3. MaskValueString (pipe-separated, match by MaskNames index)
+      3.5. Mask/MaskParameter (newer Simulink format: <Mask>/<MaskParameter>)
       4. Fallback về default_value nếu không tìm thấy
 
     Args:
@@ -226,6 +245,15 @@ def get_block_config(
         for i, name in enumerate(names):
             if name.strip() == config_name and i < len(values):
                 return values[i].strip()
+
+    # 3.5 Mask/MaskParameter (newer Simulink format)
+    mask_elem = block.find("Mask")
+    if mask_elem is not None:
+        mp = mask_elem.find(f"MaskParameter[@Name='{config_name}']")
+        if mp is not None:
+            val = mp.get("Value", "")
+            if val:
+                return val
 
     # 4. Fallback
     return default_value

@@ -136,6 +136,30 @@ Nếu rule chỉ áp dụng cho 1 phần model:
 
 Nếu rule không đề cập phạm vi → giữ defaults: `scope="all_instances"`, `scope_filter=""`.
 
+## Xác định complexity_level
+
+Phân tích rule text → xác định complexity level (1-5):
+
+| Level | Dấu hiệu trong rule text | complexity_level |
+|-------|--------------------------|-----------------|
+| 1-2 | Chỉ nói về 1 block type + 1 config + điều kiện đơn | 1 |
+| 3 | "tất cả subsystem", "mọi layer", "mọi cấp", "recursive", "nested", "ở mọi nơi", "bất kể depth" | 3 |
+| 4 | "kết nối", "connected to", "feeds into", "signal flow", "đầu ra nối với", "downstream" | 4 |
+| 5 | "trong cùng subsystem", "parent", "tùy vào vị trí", "context", "tùy thuộc subsystem cha" | 5 |
+
+**Mặc định**: Nếu rule không có dấu hiệu Level 3-5 → `complexity_level = 1`
+
+**Ví dụ Level 3**: "Tất cả Gain blocks ở MỌI subsystem level phải có SaturateOnIntegerOverflow = on"
+→ `complexity_level: 3` (vì mention "mọi subsystem level")
+
+**Ví dụ Level 4**: "Gain block nối trực tiếp với Outport phải có Gain != 1"
+→ `complexity_level: 4` (vì cần trace connections)
+
+**Ví dụ Level 5**: "Blocks bên trong filter subsystem phải có config khác với blocks ở root"
+→ `complexity_level: 5` (vì phụ thuộc parent subsystem context)
+
+Lưu ý: hầu hết rules TargetLink thực tế là Level 1-3. Level 4-5 rất hiếm nhưng cần hỗ trợ.
+
 ## Lưu ý
 
 - Chỉ trả về JSON, không giải thích thêm — output được parse tự động bằng Pydantic, text thừa gây lỗi

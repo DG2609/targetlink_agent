@@ -15,12 +15,17 @@ description: Agent 4 — sửa lỗi code do Agent 2 sinh ra dựa trên error t
 - `patch_python_file(filename, new_code_content)` — ghi đè file đã sửa
 
 ### XML tools (verify XPath)
+
+Khi xml_toolkit được cung cấp, có quyền truy cập TOÀN BỘ XML tools. Tuy nhiên Agent 4 chỉ nên dùng tools debug-oriented:
+
 - `test_xpath_query(xml_file, xpath)` — verify XPath expression trên model thật
 - `read_xml_structure(xml_file, xpath)` — xem XML nodes tại xpath
 - `list_xml_files()` — liệt kê XML files trong model
 - `find_blocks_recursive(block_type)` — tìm blocks xuyên layers
+- `query_config(block_type, config_name)` — kiểm tra config value thực tế (khi lỗi liên quan default value)
+- `auto_discover_blocks(block_keyword)` — tìm blocks matching keyword (khi lỗi "không tìm thấy block")
 
-Dùng XML tools KHI lỗi liên quan XPath (XPathError, empty result). Verify XPath trên model thật trước khi patch code.
+Dùng XML tools KHI lỗi liên quan XPath (XPathError, empty result) hoặc cần verify data thực tế. Verify XPath trên model thật trước khi patch code.
 **KHÔNG dùng XML tools để thay đổi logic check** — đó là việc của Agent 5.
 
 ## Quy trình

@@ -19,8 +19,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 import pytest
-from utils.model_differ import ModelDiffer, format_diff_for_agent, build_agent_context
-from schemas.diff_schemas import ConfigChange, BlockChange, ModelDiff
+from utils.model_differ import ModelDiffer
+from schemas.diff_schemas import ModelDiff
 
 
 # ── Fixtures ──────────────────────────────────────────────
@@ -230,39 +230,6 @@ class TestAttributeDiff:
         assert name_changes[0].new_value == "G2"
 
 
-# ── Test: format_diff_for_agent ───────────────────────────
-
-class TestFormatDiffForAgent:
-    def test_format_basic(self, diff_result):
-        text = format_diff_for_agent(diff_result)
-        assert "RAW DIFF RESULTS" in text
-        assert "Total changes:" in text
-
-    def test_format_contains_block_info(self, diff_result):
-        text = format_diff_for_agent(diff_result)
-        assert "SID=" in text
-        assert "XPath:" in text
-
-    def test_filter_by_block_type(self, diff_result):
-        text = format_diff_for_agent(diff_result, block_type="Abs")
-        assert "Abs" in text
-        # Should not contain Reference changes
-        assert "Reference" not in text
-
-    def test_filter_by_config_name(self, diff_result):
-        text = format_diff_for_agent(diff_result, config_name="SaturateOnIntegerOverflow")
-        assert "SaturateOnIntegerOverflow" in text
-
-    def test_filter_no_match(self, diff_result):
-        text = format_diff_for_agent(diff_result, block_type="NonExistentBlock")
-        assert text == ""
-
-    def test_empty_diff(self):
-        empty_diff = ModelDiff(model_before="a", model_after="b")
-        text = format_diff_for_agent(empty_diff)
-        assert text == ""
-
-
 # ── Test: Directory validation ────────────────────────────
 
 class TestDirectoryValidation:
@@ -298,70 +265,6 @@ class TestDefaultValues:
         for c in abs_changes:
             # Just verify the field exists and is a string
             assert isinstance(c.default_value, str)
-
-
-# ── Test: build_agent_context (raw JSON for LLM) ─────────
-
-class TestBuildAgentContext:
-    def test_has_two_parts(self, diff_result):
-        ctx = build_agent_context(diff_result, "Gain", "SaturateOnIntegerOverflow", AFTER_DIR)
-        assert "PART 1" in ctx
-        assert "CODE GENERATION DATA" in ctx
-        assert "PART 2" in ctx
-        assert "VALIDATION DATA" in ctx
-
-    def test_part1_config_locations(self, diff_result):
-        ctx = build_agent_context(diff_result, "Gain", "SaturateOnIntegerOverflow", AFTER_DIR)
-        assert "CONFIG_LOCATIONS" in ctx
-        assert '"location_type"' in ctx
-        assert '"xpath_pattern"' in ctx
-
-    def test_part1_defaults_dict(self, diff_result):
-        ctx = build_agent_context(diff_result, "Gain", "SaturateOnIntegerOverflow", AFTER_DIR)
-        assert "BLOCK_DEFAULTS_DICTIONARY" in ctx
-        assert '"SaturateOnIntegerOverflow"' in ctx
-
-    def test_part2_changed_blocks(self, diff_result):
-        ctx = build_agent_context(diff_result, "Gain", "SaturateOnIntegerOverflow", AFTER_DIR)
-        assert "CHANGED_BLOCKS" in ctx
-        assert '"old_value"' in ctx
-        assert '"new_value"' in ctx
-
-    def test_part2_diff_summary(self, diff_result):
-        ctx = build_agent_context(diff_result, "Gain", "SaturateOnIntegerOverflow", AFTER_DIR)
-        assert "DIFF_SUMMARY for Gain/SaturateOnIntegerOverflow:" in ctx
-        assert "blocks_with_changes: 1" in ctx
-
-    def test_no_model_dir_skips_defaults(self, diff_result):
-        """Without model_dir → no defaults section."""
-        ctx = build_agent_context(diff_result, "Gain", "SaturateOnIntegerOverflow")
-        assert "CONFIG_LOCATIONS" in ctx
-        assert "CHANGED_BLOCKS" in ctx
-        assert "BLOCK_DEFAULTS_DICTIONARY" not in ctx
-
-    def test_config_locations_json_parseable(self, diff_result):
-        """CONFIG_LOCATIONS JSON should be parseable."""
-        import json
-        ctx = build_agent_context(diff_result, "Gain", "SaturateOnIntegerOverflow", AFTER_DIR)
-        marker = "CONFIG_LOCATIONS (unique per block_type + config_name):\n"
-        start = ctx.index(marker) + len(marker)
-        end = ctx.index("\n\nBLOCK_DEFAULTS")
-        parsed = json.loads(ctx[start:end])
-        assert isinstance(parsed, list)
-        assert len(parsed) >= 1
-        assert "xpath_pattern" in parsed[0]
-
-    def test_defaults_for_unknown_block(self):
-        """Unknown block type → message saying no defaults available."""
-        empty_diff = ModelDiff(model_before="a", model_after="b", config_changes=[
-            ConfigChange(block_sid="1", block_name="X", block_type="FooBar",
-                         system_file="test.xml", config_name="Y",
-                         location_type="direct_P", xpath="x", change_type="modified"),
-        ])
-        ctx = build_agent_context(empty_diff, "FooBar", "Y", AFTER_DIR)
-        # FooBar not in bddefaults.xml, SubSystem IS → should still say no defaults for FooBar
-        # Actually SubSystem is always included, so check CONFIG_LOCATIONS present
-        assert "CONFIG_LOCATIONS" in ctx
 
 
 if __name__ == "__main__":

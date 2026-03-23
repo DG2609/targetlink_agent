@@ -1,9 +1,13 @@
 ---
 name: data-reader
-description: Agent 1 — tìm block trong blocks.json bằng fuzzy matching, phân tích description → config map. Kích hoạt khi cần map block_keyword sang name_xml, xác định xml_representation, và hiểu config nằm ở đâu trong cấu trúc XML TargetLink.
+description: "DEPRECATED — replaced by pipeline/data_reader.py (pure Python, no LLM). Kept for reference only."
 ---
 
-# Data Reader
+# Data Reader (DEPRECATED)
+
+> **DEPRECATED**: Agent 1 đã được thay thế bằng pure Python implementation tại `pipeline/data_reader.py`.
+> File agent declaration `agents/agent1_data_reader.py` cũng đã deprecated.
+> Skill này giữ lại làm tài liệu tham khảo — KHÔNG được pipeline sử dụng.
 
 Tra cứu từ điển block và phân tích description để lập bản đồ config.
 

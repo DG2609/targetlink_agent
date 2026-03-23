@@ -1,0 +1,14 @@
+[
+  {
+    "rule_id": "R003",
+    "description": "Tất cả Gain blocks ở MỌI subsystem level phải có SaturateOnIntegerOverflow bằng 'on' (kiểm tra xuyên subsystem, cần hierarchy path)"
+  },
+  {
+    "rule_id": "R004",
+    "description": "Mỗi Gain block nối trực tiếp đến Outport (connected to Outport) phải có giá trị Gain khác 1"
+  },
+  {
+    "rule_id": "R005",
+    "description": "Tất cả Gain blocks bên trong các filter subsystem (subsystem có tên chứa 'Filter') phải có SaturateOnIntegerOverflow bằng 'on'"
+  }
+]

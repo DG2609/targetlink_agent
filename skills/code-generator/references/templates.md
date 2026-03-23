@@ -215,3 +215,331 @@ if __name__ == "__main__":
     result = check_rule(sys.argv[1])
     print(json.dumps(result, indent=2))
 ```
+
+## Template code — Hierarchy-Aware Rule (Level 3)
+
+Dùng khi rule cần check blocks xuyên mọi subsystem levels với full hierarchy path.
+Code dùng `utils.hierarchy_utils.walk_blocks()` thay vì iterate files thủ công:
+
+```python
+"""
+Auto-generated rule check: {rule_id}
+Level 3: Hierarchy-aware — full subsystem path in output
+"""
+from lxml import etree
+import json
+import sys
+import os
+from pathlib import Path
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from utils.hierarchy_utils import walk_blocks, build_subsystem_map
+from utils.block_finder import get_block_config
+
+
+def check_rule(model_dir: str) -> dict:
+    results = {"pass": [], "fail": []}
+
+    # Get default value from bddefaults.xml
+    default_val = "{DEFAULT_VALUE}"
+    bd_path = os.path.join(model_dir, "simulink", "bddefaults.xml")
+    if os.path.exists(bd_path):
+        try:
+            bd_tree = etree.parse(bd_path)
+            bd_root = bd_tree.getroot()
+            node = bd_root.xpath(
+                ".//BlockParameterDefaults/Block[@BlockType='{BLOCK_TYPE}']/P[@Name='{CONFIG_NAME}']"
+            )
+            if node and node[0].text is not None:
+                default_val = node[0].text.strip()
+        except Exception:
+            pass
+
+    # walk_blocks tìm TẤT CẢ blocks xuyên mọi subsystem levels
+    blocks = walk_blocks(model_dir, "{BLOCK_IDENTIFIER}")
+
+    for block_info in blocks:
+        name = block_info["name"]
+        block_path = block_info["block_path"]  # "Root/Lowpass Filter/s(1)"
+        sid = block_info["sid"]
+        depth = block_info["depth"]
+        system_file = block_info["system_file"]
+
+        # Parse XML to get the actual block element for config reading
+        tree = etree.parse(os.path.join(model_dir, system_file))
+        root = tree.getroot()
+        block_elem = root.xpath(f".//Block[@SID='{sid}']")
+        if not block_elem:
+            continue
+        block = block_elem[0]
+
+        value = get_block_config(block, "{CONFIG_NAME}", default_val)
+
+        entry = {
+            "block_name": name,
+            "block_path": block_path,
+            "block_sid": sid,
+            "depth": depth,
+            "value": value,
+        }
+
+        if {DIEU_KIEN_CHECK}:
+            results["pass"].append(entry)
+        else:
+            results["fail"].append(entry)
+
+    return {
+        "rule_id": "{rule_id}",
+        "total_blocks": len(results["pass"]) + len(results["fail"]),
+        "pass_count": len(results["pass"]),
+        "fail_count": len(results["fail"]),
+        "details": results,
+    }
+
+
+if __name__ == "__main__":
+    result = check_rule(sys.argv[1])
+    print(json.dumps(result, indent=2))
+```
+
+## Template code — Connection-Based Rule (Level 4)
+
+Dùng khi rule phụ thuộc signal flow (VD: "Gain nối với Outport phải có config X"):
+
+```python
+"""
+Auto-generated rule check: {rule_id}
+Level 4: Connection-based — checks blocks based on signal connections
+"""
+from lxml import etree
+import json
+import sys
+import os
+from pathlib import Path
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from utils.hierarchy_utils import walk_blocks, get_connections
+from utils.block_finder import get_block_config
+
+
+def check_rule(model_dir: str) -> dict:
+    results = {"pass": [], "fail": []}
+
+    blocks = walk_blocks(model_dir, "{BLOCK_IDENTIFIER}")
+
+    for block_info in blocks:
+        name = block_info["name"]
+        block_path = block_info["block_path"]
+        sid = block_info["sid"]
+        system_file = block_info["system_file"]
+
+        # Get connections for this block
+        conns = get_connections(model_dir, system_file, sid)
+        connected_types = [c["type"] for c in conns.get("{DIRECTION}", [])]
+
+        # Check if block is connected to target type
+        if "{TARGET_BLOCK_TYPE}" not in connected_types:
+            continue  # Rule only applies to blocks connected to target
+
+        # Parse block element for config reading
+        tree = etree.parse(os.path.join(model_dir, system_file))
+        root = tree.getroot()
+        block_elem = root.xpath(f".//Block[@SID='{sid}']")
+        if not block_elem:
+            continue
+        block = block_elem[0]
+
+        value = get_block_config(block, "{CONFIG_NAME}", "{DEFAULT_VALUE}")
+
+        entry = {
+            "block_name": name,
+            "block_path": block_path,
+            "block_sid": sid,
+            "value": value,
+            "connected_to": ", ".join(f"{c['name']} ({c['type']})" for c in conns.get("{DIRECTION}", [])),
+        }
+
+        if {DIEU_KIEN_CHECK}:
+            results["pass"].append(entry)
+        else:
+            results["fail"].append(entry)
+
+    return {
+        "rule_id": "{rule_id}",
+        "total_blocks": len(results["pass"]) + len(results["fail"]),
+        "pass_count": len(results["pass"]),
+        "fail_count": len(results["fail"]),
+        "details": results,
+    }
+
+
+if __name__ == "__main__":
+    result = check_rule(sys.argv[1])
+    print(json.dumps(result, indent=2))
+```
+
+## Template code — Cross-Subsystem Connection Rule (Level 4 variant)
+
+Dùng khi rule check connection XUYÊN subsystem boundary (VD: "Bus Creator ở root nối Bus Selector ở depth 4-5"):
+
+```python
+"""
+Auto-generated rule check: {rule_id}
+Level 4: Cross-subsystem connection — traces signals across SubSystem boundaries
+"""
+from lxml import etree
+import json
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from utils.hierarchy_utils import walk_blocks, trace_cross_subsystem
+from utils.block_finder import get_block_config
+
+
+def check_rule(model_dir: str) -> dict:
+    results = {"pass": [], "fail": []}
+
+    # Find source blocks (e.g. BusCreator at any depth)
+    source_blocks = walk_blocks(model_dir, "{SOURCE_BLOCK_TYPE}")
+
+    for block_info in source_blocks:
+        name = block_info["name"]
+        block_path = block_info["block_path"]
+        sid = block_info["sid"]
+        depth = block_info["depth"]
+        system_file = block_info["system_file"]
+
+        # Optional: filter by depth (e.g. only root level)
+        # if depth != 0:
+        #     continue
+
+        # Trace signal downstream across subsystem boundaries
+        trace = trace_cross_subsystem(
+            model_dir, system_file, sid, "{DIRECTION}", max_depth=10,
+        )
+
+        # Check if target block type appears in the trace
+        target_steps = [
+            s for s in trace if s["block_type"] == "{TARGET_BLOCK_TYPE}"
+        ]
+
+        if not target_steps:
+            continue  # Rule only applies when source connects to target
+
+        for target in target_steps:
+            entry = {
+                "block_name": name,
+                "block_path": block_path,
+                "block_sid": sid,
+                "source_depth": depth,
+                "target_name": target["block_name"],
+                "target_path": target["block_path"],
+                "target_depth": target["depth"],
+                "value": f"connected via {target['crossing']}",
+            }
+
+            if {DIEU_KIEN_CHECK}:
+                results["pass"].append(entry)
+            else:
+                results["fail"].append(entry)
+
+    return {
+        "rule_id": "{rule_id}",
+        "total_blocks": len(results["pass"]) + len(results["fail"]),
+        "pass_count": len(results["pass"]),
+        "fail_count": len(results["fail"]),
+        "details": results,
+    }
+
+
+if __name__ == "__main__":
+    result = check_rule(sys.argv[1])
+    print(json.dumps(result, indent=2))
+```
+
+## Template code — Contextual Rule (Level 5)
+
+Dùng khi rule phụ thuộc parent subsystem context (VD: "Blocks trong filter subsystem phải config khác"):
+
+```python
+"""
+Auto-generated rule check: {rule_id}
+Level 5: Contextual — rule depends on parent subsystem properties
+"""
+from lxml import etree
+import json
+import sys
+import os
+from pathlib import Path
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from utils.hierarchy_utils import walk_blocks, build_subsystem_map, get_parent_subsystem_info
+from utils.block_finder import get_block_config
+
+
+def check_rule(model_dir: str) -> dict:
+    results = {"pass": [], "fail": []}
+
+    # Pre-build subsystem map once (avoid rebuilding per block)
+    sub_map = build_subsystem_map(model_dir)
+
+    blocks = walk_blocks(model_dir, "{BLOCK_IDENTIFIER}")
+
+    for block_info in blocks:
+        name = block_info["name"]
+        block_path = block_info["block_path"]
+        sid = block_info["sid"]
+        depth = block_info["depth"]
+        system_file = block_info["system_file"]
+        parent_sub = block_info.get("parent_subsystem", "")
+
+        # Get parent subsystem context (reuses pre-built map)
+        parent_info = get_parent_subsystem_info(model_dir, system_file, sub_map)
+
+        # Apply context filter: only check blocks matching parent pattern
+        if parent_info is not None:
+            parent_name = parent_info.get("name", "")
+            if not {PARENT_FILTER_CONDITION}:
+                continue  # Skip blocks not in target context
+        else:
+            # Block is at root level — decide based on rule
+            {ROOT_LEVEL_HANDLING}
+
+        # Parse block element for config reading
+        tree = etree.parse(os.path.join(model_dir, system_file))
+        root = tree.getroot()
+        block_elem = root.xpath(f".//Block[@SID='{sid}']")
+        if not block_elem:
+            continue
+        block = block_elem[0]
+
+        value = get_block_config(block, "{CONFIG_NAME}", "{DEFAULT_VALUE}")
+
+        entry = {
+            "block_name": name,
+            "block_path": block_path,
+            "block_sid": sid,
+            "depth": depth,
+            "value": value,
+            "parent_subsystem": parent_sub,
+        }
+
+        if {DIEU_KIEN_CHECK}:
+            results["pass"].append(entry)
+        else:
+            results["fail"].append(entry)
+
+    return {
+        "rule_id": "{rule_id}",
+        "total_blocks": len(results["pass"]) + len(results["fail"]),
+        "pass_count": len(results["pass"]),
+        "fail_count": len(results["fail"]),
+        "details": results,
+    }
+
+
+if __name__ == "__main__":
+    result = check_rule(sys.argv[1])
+    print(json.dumps(result, indent=2))
+```
