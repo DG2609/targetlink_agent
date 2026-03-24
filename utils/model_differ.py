@@ -107,13 +107,35 @@ class ModelDiffer:
 
     @staticmethod
     def _list_system_files(model_dir: str) -> list[str]:
-        """Liệt kê tất cả system_*.xml files (relative paths)."""
-        systems_dir = Path(model_dir) / "simulink" / "systems"
-        if not systems_dir.exists():
+        """Liệt kê tất cả XML files có thể chứa blocks (relative paths).
+
+        Scan toàn bộ simulink/ recursively, không chỉ systems/system_*.xml.
+        Skip directories/files không liên quan đến block definitions.
+        """
+        simulink_dir = Path(model_dir) / "simulink"
+        if not simulink_dir.exists():
             return []
+
+        # Directories không chứa block definitions
+        _skip_dirs = {"plugins", "_rels", "bdmxdata"}
+        # Files metadata/config — không chứa Block elements
+        _skip_files = {
+            "bddefaults.xml", "blockdiagram.xml", "configSet0.xml",
+            "configSetInfo.xml", "graphicalInterface.xml", "windowsInfo.xml",
+            "ScheduleCore.xml", "ScheduleEditor.xml", "codeDictionary.xml",
+            "modelDictionary.xml",
+        }
+
+        base = Path(model_dir)
         result = []
-        for f in sorted(systems_dir.glob("system_*.xml")):
-            rel = str(f.relative_to(Path(model_dir))).replace("\\", "/")
+        for f in sorted(simulink_dir.rglob("*.xml")):
+            # Skip irrelevant directories
+            if any(part in _skip_dirs for part in f.relative_to(simulink_dir).parts):
+                continue
+            # Skip known non-block files
+            if f.name in _skip_files:
+                continue
+            rel = str(f.relative_to(base)).replace("\\", "/")
             result.append(rel)
         return result
 

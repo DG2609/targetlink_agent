@@ -2,7 +2,7 @@
 
 3 templates cho 3 loại rule khác nhau. Chọn template phù hợp nhất rồi thay thế placeholders.
 
-## Template code — Config Check Rule
+## Template — Config Check Rule
 
 Dùng khi rule check 1 property cụ thể (VD: "Gain phải có SaturateOnIntegerOverflow=on"):
 
@@ -16,7 +16,7 @@ import sys
 import os
 from pathlib import Path
 
-# BẮT BUỘC import — tìm block đúng cách bất kể dạng XML
+# Import block_finder — xử lý cả 3 dạng XML (native/reference/masked)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from utils.block_finder import find_blocks, get_block_config
 
@@ -25,7 +25,7 @@ def check_rule(model_dir: str) -> dict:
     systems_dir = os.path.join(model_dir, "simulink", "systems")
     results = {"pass": [], "fail": []}
 
-    # (Optional) Get default value from bddefaults.xml
+    # Get default value from bddefaults.xml
     default_val = "{DEFAULT_VALUE}"
     bd_path = os.path.join(model_dir, "simulink", "bddefaults.xml")
     if os.path.exists(bd_path):
@@ -44,7 +44,6 @@ def check_rule(model_dir: str) -> dict:
         tree = etree.parse(str(xml_file))
         root = tree.getroot()
 
-        # find_blocks tự search cả BlockType, MaskType, SourceType
         blocks = find_blocks(root, "{BLOCK_IDENTIFIER}")
 
         for block in blocks:
@@ -52,7 +51,6 @@ def check_rule(model_dir: str) -> dict:
             sid = block.get("SID", "")
             path = f"{xml_file.stem}/{name}"
 
-            # get_block_config tự check cả direct <P> lẫn <InstanceData>/<P>
             value = get_block_config(block, "{CONFIG_NAME}", default_val)
 
             if {DIEU_KIEN_CHECK}:
@@ -74,7 +72,7 @@ if __name__ == "__main__":
     print(json.dumps(result, indent=2))
 ```
 
-## Template code — Forbidden Block Rule
+## Template — Forbidden Block Rule
 
 Dùng khi rule cấm dùng 1 số block types (VD: "không được dùng block Buffer, Product"):
 
@@ -136,15 +134,15 @@ if __name__ == "__main__":
     print(json.dumps(result, indent=2))
 ```
 
-## Template code — Config-Only Rule (không nói rõ block type)
+## Template — Config-Only Rule (không nói rõ block type)
 
-Dùng khi rule chỉ nói config mà KHÔNG nói block nào (VD: "SaturateOnIntegerOverflow phải on").
-Code phải dùng `find_blocks_with_config` để tìm TẤT CẢ blocks có config đó:
+Dùng khi rule chỉ nói config mà không nói block nào (VD: "SaturateOnIntegerOverflow phải on").
+Code dùng `find_blocks_with_config` để tìm tất cả blocks có config đó:
 
 ```python
 """
 Auto-generated rule check: {rule_id}
-Config: {CONFIG_NAME} — check trên TẤT CẢ block types có config này
+Config: {CONFIG_NAME} — check trên tất cả block types có config này
 """
 from lxml import etree
 import json
@@ -179,7 +177,6 @@ def check_rule(model_dir: str) -> dict:
         tree = etree.parse(str(xml_file))
         root = tree.getroot()
 
-        # Tìm TẤT CẢ blocks có config này (bất kể block type)
         for block in find_blocks_with_config(root, "{CONFIG_NAME}"):
             identity = get_block_identity(block)
             name = block.get("Name", "Unknown")
@@ -216,10 +213,10 @@ if __name__ == "__main__":
     print(json.dumps(result, indent=2))
 ```
 
-## Template code — Hierarchy-Aware Rule (Level 3)
+## Template — Hierarchy-Aware Rule (Level 3)
 
 Dùng khi rule cần check blocks xuyên mọi subsystem levels với full hierarchy path.
-Code dùng `utils.hierarchy_utils.walk_blocks()` thay vì iterate files thủ công:
+Dùng `utils.hierarchy_utils.walk_blocks()` thay vì iterate files thủ công:
 
 ```python
 """
@@ -255,7 +252,7 @@ def check_rule(model_dir: str) -> dict:
         except Exception:
             pass
 
-    # walk_blocks tìm TẤT CẢ blocks xuyên mọi subsystem levels
+    # walk_blocks tìm tất cả blocks xuyên mọi subsystem levels
     blocks = walk_blocks(model_dir, "{BLOCK_IDENTIFIER}")
 
     for block_info in blocks:
@@ -302,7 +299,7 @@ if __name__ == "__main__":
     print(json.dumps(result, indent=2))
 ```
 
-## Template code — Connection-Based Rule (Level 4)
+## Template — Connection-Based Rule (Level 4)
 
 Dùng khi rule phụ thuộc signal flow (VD: "Gain nối với Outport phải có config X"):
 
@@ -337,9 +334,9 @@ def check_rule(model_dir: str) -> dict:
         conns = get_connections(model_dir, system_file, sid)
         connected_types = [c["type"] for c in conns.get("{DIRECTION}", [])]
 
-        # Check if block is connected to target type
+        # Rule only applies to blocks connected to target
         if "{TARGET_BLOCK_TYPE}" not in connected_types:
-            continue  # Rule only applies to blocks connected to target
+            continue
 
         # Parse block element for config reading
         tree = etree.parse(os.path.join(model_dir, system_file))
@@ -378,9 +375,9 @@ if __name__ == "__main__":
     print(json.dumps(result, indent=2))
 ```
 
-## Template code — Cross-Subsystem Connection Rule (Level 4 variant)
+## Template — Cross-Subsystem Connection Rule (Level 4 variant)
 
-Dùng khi rule check connection XUYÊN subsystem boundary (VD: "Bus Creator ở root nối Bus Selector ở depth 4-5"):
+Dùng khi rule check connection xuyên subsystem boundary (VD: "Bus Creator ở root nối Bus Selector ở depth 4-5"):
 
 ```python
 """
@@ -400,7 +397,6 @@ from utils.block_finder import get_block_config
 def check_rule(model_dir: str) -> dict:
     results = {"pass": [], "fail": []}
 
-    # Find source blocks (e.g. BusCreator at any depth)
     source_blocks = walk_blocks(model_dir, "{SOURCE_BLOCK_TYPE}")
 
     for block_info in source_blocks:
@@ -409,10 +405,6 @@ def check_rule(model_dir: str) -> dict:
         sid = block_info["sid"]
         depth = block_info["depth"]
         system_file = block_info["system_file"]
-
-        # Optional: filter by depth (e.g. only root level)
-        # if depth != 0:
-        #     continue
 
         # Trace signal downstream across subsystem boundaries
         trace = trace_cross_subsystem(
@@ -458,7 +450,7 @@ if __name__ == "__main__":
     print(json.dumps(result, indent=2))
 ```
 
-## Template code — Contextual Rule (Level 5)
+## Template — Contextual Rule (Level 5)
 
 Dùng khi rule phụ thuộc parent subsystem context (VD: "Blocks trong filter subsystem phải config khác"):
 

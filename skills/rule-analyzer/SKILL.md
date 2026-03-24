@@ -1,6 +1,6 @@
 ---
 name: rule-analyzer
-description: Agent 0 — phân tích mô tả luật TargetLink bằng ngôn ngữ tự nhiên (Việt/Anh) → JSON cấu trúc. Kích hoạt khi cần bóc tách rule text thành block_keyword, config_name, condition, expected_value.
+description: Agent 0 — phân tích mô tả luật TargetLink bằng ngôn ngữ tự nhiên (Việt/Anh) thành JSON cấu trúc. Kích hoạt khi cần bóc tách rule text thành block_keyword, config_name, condition, expected_value. Dùng cho mọi bước đầu tiên khi nhận rule mới từ người dùng.
 ---
 
 # Rule Analyzer
@@ -100,7 +100,7 @@ Ngoài các field cơ bản, ParsedRule còn hỗ trợ:
 
 ### compound_logic + additional_configs (rule check nhiều config)
 
-Nếu rule yêu cầu check **nhiều config** trên cùng block:
+Khi rule yêu cầu check **nhiều config** trên cùng block:
 - `compound_logic`: `"AND"` (tất cả config phải đúng) hoặc `"OR"` (ít nhất 1 đúng)
 - `additional_configs`: danh sách config phụ kèm condition + expected_value
 
@@ -120,7 +120,7 @@ Nếu rule yêu cầu check **nhiều config** trên cùng block:
 
 ### target_block_types (explicit block list)
 
-Nếu rule nói rõ block types cụ thể (không cần auto-discover):
+Khi rule nói rõ block types cụ thể (không cần auto-discover):
 ```json
 {
   "target_block_types": ["TL_Inport", "TL_Outport"]
@@ -130,7 +130,7 @@ Rỗng `[]` = mặc định, Agent 2 tự tìm từ `block_keyword`.
 
 ### scope + scope_filter (giới hạn phạm vi)
 
-Nếu rule chỉ áp dụng cho 1 phần model:
+Khi rule chỉ áp dụng cho 1 phần model:
 - `scope`: `"all_instances"` (mặc định), `"specific_path"`, `"subsystem"`
 - `scope_filter`: pattern lọc, VD: `"SubSystem1/*"`
 
@@ -143,28 +143,28 @@ Phân tích rule text → xác định complexity level (1-5):
 | Level | Dấu hiệu trong rule text | complexity_level |
 |-------|--------------------------|-----------------|
 | 1-2 | Chỉ nói về 1 block type + 1 config + điều kiện đơn | 1 |
-| 3 | "tất cả subsystem", "mọi layer", "mọi cấp", "recursive", "nested", "ở mọi nơi", "bất kể depth" | 3 |
-| 4 | "kết nối", "connected to", "feeds into", "signal flow", "đầu ra nối với", "downstream" | 4 |
-| 5 | "trong cùng subsystem", "parent", "tùy vào vị trí", "context", "tùy thuộc subsystem cha" | 5 |
+| 3 | "tất cả subsystem", "mọi layer", "recursive", "nested", "ở mọi nơi" | 3 |
+| 4 | "kết nối", "connected to", "feeds into", "signal flow", "downstream" | 4 |
+| 5 | "trong cùng subsystem", "parent", "tùy vào vị trí", "context" | 5 |
 
-**Mặc định**: Nếu rule không có dấu hiệu Level 3-5 → `complexity_level = 1`
+**Mặc định**: Không có dấu hiệu Level 3-5 → `complexity_level = 1`
 
 **Ví dụ Level 3**: "Tất cả Gain blocks ở MỌI subsystem level phải có SaturateOnIntegerOverflow = on"
-→ `complexity_level: 3` (vì mention "mọi subsystem level")
+→ `complexity_level: 3` (mention "mọi subsystem level")
 
 **Ví dụ Level 4**: "Gain block nối trực tiếp với Outport phải có Gain != 1"
-→ `complexity_level: 4` (vì cần trace connections)
+→ `complexity_level: 4` (cần trace connections)
 
 **Ví dụ Level 5**: "Blocks bên trong filter subsystem phải có config khác với blocks ở root"
-→ `complexity_level: 5` (vì phụ thuộc parent subsystem context)
+→ `complexity_level: 5` (phụ thuộc parent subsystem context)
 
-Lưu ý: hầu hết rules TargetLink thực tế là Level 1-3. Level 4-5 rất hiếm nhưng cần hỗ trợ.
+Hầu hết rules TargetLink thực tế là Level 1-3. Level 4-5 rất hiếm nhưng cần hỗ trợ.
 
 ## Lưu ý
 
-- Chỉ trả về JSON, không giải thích thêm — output được parse tự động bằng Pydantic, text thừa gây lỗi
-- block_keyword luôn viết thường — Agent 1 dùng fuzzy search case-insensitive
-- Nếu rule text không rõ condition → mặc định dùng `not_equal` — đây là trường hợp phổ biến nhất (rule cấm giá trị mặc định)
-- **Nếu rule KHÔNG nói rõ block type** (chỉ nói về config) → `block_keyword` = `""` (rỗng). Agent 2 sẽ tự xác định block types từ model bằng `find_config_locations()` — không cần đoán block type
-- Ví dụ: "SaturateOnIntegerOverflow phải bật on" → `block_keyword: ""`, `config_name: "SaturateOnIntegerOverflow"`
-- Nếu rule đơn giản (1 config, 1 block type, all instances) → KHÔNG cần set compound_logic, target_block_types, scope — giữ defaults
+- Output được parse tự động bằng Pydantic nên chỉ trả về JSON thuần, không kèm text giải thích — text thừa gây parse error
+- `block_keyword` luôn viết thường vì Agent 1 dùng fuzzy search case-insensitive
+- Nếu rule text không rõ condition → mặc định dùng `not_equal` (trường hợp phổ biến nhất: rule cấm giá trị mặc định)
+- Khi rule không nói rõ block type (chỉ nói về config) → để `block_keyword = ""`. Agent 2 sẽ tự xác định block types từ model bằng `find_config_locations()`, không cần đoán
+  - Ví dụ: "SaturateOnIntegerOverflow phải bật on" → `block_keyword: ""`, `config_name: "SaturateOnIntegerOverflow"`
+- Khi rule đơn giản (1 config, 1 block type, all instances) → không cần set compound_logic, target_block_types, scope — giữ defaults

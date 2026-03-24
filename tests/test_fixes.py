@@ -364,9 +364,9 @@ class TestSkillLoaderReferences:
         body = load_skill("code-generator", include_references=True)
         assert len(body) == 1
         # Templates from references/templates.md should be appended
-        assert "Template code — Config Check Rule" in body[0]
-        assert "Template code — Forbidden Block Rule" in body[0]
-        assert "Template code — Config-Only Rule" in body[0]
+        assert "Template — Config Check Rule" in body[0]
+        assert "Template — Forbidden Block Rule" in body[0]
+        assert "Template — Config-Only Rule" in body[0]
 
     def test_list_skill_references(self):
         from utils.skill_loader import list_skill_references

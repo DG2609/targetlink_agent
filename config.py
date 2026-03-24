@@ -17,8 +17,8 @@ class Settings(BaseSettings):
     )
 
     # ── LLM Provider ────────────────────────────────────────
-    # "gemini" = Google Vertex AI (cloud), "ollama" = local Ollama
-    LLM_PROVIDER: Literal["gemini", "ollama"] = "gemini"
+    # "gemini" = Google Vertex AI (cloud), "ollama" = local Ollama, "vllm" = vLLM server
+    LLM_PROVIDER: Literal["gemini", "ollama", "vllm"] = "gemini"
 
     # ── Google Cloud Vertex AI (khi LLM_PROVIDER=gemini) ────
     GOOGLE_CLOUD_PROJECT: str = ""
@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     OLLAMA_HOST: str = "http://localhost:11434"
     # Model nhỏ hơn cho agents đơn giản (Agent 0, 1, 1.5) — tiết kiệm RAM
     OLLAMA_SMALL_MODEL: str = ""  # Rỗng = dùng OLLAMA_MODEL cho tất cả
+
+    # ── vLLM (khi LLM_PROVIDER=vllm) ─────────────────────
+    VLLM_BASE_URL: str = "http://localhost:8000/v1"
+    VLLM_MODEL: str = ""  # Model ID deployed trên vLLM server
+    VLLM_SMALL_MODEL: str = ""  # Model nhỏ cho Agent 0 (rỗng = dùng VLLM_MODEL)
+    VLLM_API_KEY: str = "not-needed"  # vLLM không validate key mặc định
 
     # ── Paths ───────────────────────────────────────────────
     BASE_DIR: Path = Path(__file__).parent
@@ -56,6 +62,12 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "LLM_PROVIDER=gemini nhưng GOOGLE_CLOUD_PROJECT trống. "
                     "Set GOOGLE_CLOUD_PROJECT trong .env hoặc đổi LLM_PROVIDER=ollama."
+                )
+        elif self.LLM_PROVIDER == "vllm":
+            if not self.VLLM_MODEL or not self.VLLM_MODEL.strip():
+                raise ValueError(
+                    "LLM_PROVIDER=vllm nhưng VLLM_MODEL trống. "
+                    "Set VLLM_MODEL trong .env (VD: VLLM_MODEL=Qwen/Qwen2.5-32B-Instruct)."
                 )
         return self
 
