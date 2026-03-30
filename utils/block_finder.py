@@ -221,18 +221,33 @@ def get_block_config(
 
     Returns:
         Config value (str) hoặc default_value nếu không tìm thấy.
+        Với <Array> params: trả về các <D> elements join bằng '|'
+        VD: <Array><D>fixdt(1,16,12)</D></Array> → "fixdt(1,16,12)"
+        VD: <Array><D>0</D><D>1</D><D>2</D></Array> → "0|1|2"
     """
     # 1. Direct <P>
     node = block.find(f"P[@Name='{config_name}']")
-    if node is not None and node.text is not None:
-        return node.text.strip()
+    if node is not None:
+        if node.text is not None:
+            return node.text.strip()
+        array_node = node.find("Array")
+        if array_node is not None:
+            d_values = [d.text.strip() for d in array_node.findall("D") if d.text]
+            if d_values:
+                return "|".join(d_values)
 
     # 2. InstanceData/<P>
     instance = block.find("InstanceData")
     if instance is not None:
         node = instance.find(f"P[@Name='{config_name}']")
-        if node is not None and node.text is not None:
-            return node.text.strip()
+        if node is not None:
+            if node.text is not None:
+                return node.text.strip()
+            array_node = node.find("Array")
+            if array_node is not None:
+                d_values = [d.text.strip() for d in array_node.findall("D") if d.text]
+                if d_values:
+                    return "|".join(d_values)
 
     # 3. MaskValueString (pipe-separated values keyed by MaskNames)
     mask_names_node = block.find("P[@Name='MaskNames']")

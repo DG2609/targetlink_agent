@@ -33,5 +33,75 @@
     "name_ui": "SubSystem",
     "name_xml": "SubSystem",
     "description": "Subsystem — hệ thống con. Trong XML: <Block BlockType='SubSystem'>. Chứa <System Ref='system_*'/> trỏ tới file XML khác trong simulink/systems/."
+  },
+  {
+    "name_ui": "TL_Inport",
+    "name_xml": "TL_Inport",
+    "description": "TargetLink input port — cổng vào với kiểu dữ liệu cố định. Trong XML: <Block BlockType='SubSystem' MaskType='TL_Inport'> (MaskType='TL_Inport'). Là masked SubSystem. Configs lưu trong MaskValueString (pipe-separated) tương ứng MaskNames. Properties quan trọng: DataType (kiểu dữ liệu cố định, VD: int16), Width (chiều rộng vector), Scaling (hệ số tỉ lệ fixed-point). Để đọc config: dùng get_block_config(block, 'DataType') — tự động tra MaskNames index."
+  },
+  {
+    "name_ui": "TL_Outport",
+    "name_xml": "TL_Outport",
+    "description": "TargetLink output port — cổng ra với kiểu dữ liệu cố định. Trong XML: <Block BlockType='SubSystem' MaskType='TL_Outport'>. Là masked SubSystem. Properties: DataType, Width, Scaling. Configs đọc qua MaskValueString/MaskNames hoặc direct <P>."
+  },
+  {
+    "name_ui": "TL_Gain",
+    "name_xml": "TL_Gain",
+    "description": "TargetLink Gain block — nhân với kiểu dữ liệu cố định. Trong XML: <Block BlockType='SubSystem' MaskType='TL_Gain'>. Là masked SubSystem. Properties: DataType (kiểu dữ liệu output), Gain (giá trị nhân), SaturateOnIntegerOverflow (on/off). Configs đọc qua MaskValueString/MaskNames."
+  },
+  {
+    "name_ui": "TL_Sum",
+    "name_xml": "TL_Sum",
+    "description": "TargetLink Sum block — cộng trừ với kiểu dữ liệu cố định. Trong XML: <Block BlockType='SubSystem' MaskType='TL_Sum'>. Là masked SubSystem. Properties: DataType, Inputs (+/- pattern), SaturateOnIntegerOverflow. Configs đọc qua MaskValueString/MaskNames."
+  },
+  {
+    "name_ui": "TL_Abs",
+    "name_xml": "TL_Abs",
+    "description": "TargetLink Abs block — giá trị tuyệt đối với kiểu dữ liệu cố định. Trong XML: <Block BlockType='SubSystem' MaskType='TL_Abs'>. Là masked SubSystem. Properties: DataType, SaturateOnIntegerOverflow. Configs đọc qua MaskValueString/MaskNames."
+  },
+  {
+    "name_ui": "TL_Delay",
+    "name_xml": "TL_Delay",
+    "description": "TargetLink Delay/register block — giữ trạng thái với kiểu dữ liệu cố định. Trong XML: <Block BlockType='SubSystem' MaskType='TL_Delay'>. Là masked SubSystem. Properties: DataType, InitialCondition, DelayLength. Configs đọc qua MaskValueString/MaskNames."
+  },
+  {
+    "name_ui": "TL_Lookup1D",
+    "name_xml": "TL_Lookup1D",
+    "description": "TargetLink 1D lookup table. Trong XML: <Block BlockType='SubSystem' MaskType='TL_Lookup1D'>. Là masked SubSystem. Properties: DataType, BreakpointsX, TableData. Configs đọc qua MaskValueString/MaskNames hoặc Array-type <P>."
+  },
+  {
+    "name_ui": "TL_Lookup2D",
+    "name_xml": "TL_Lookup2D",
+    "description": "TargetLink 2D lookup table. Trong XML: <Block BlockType='SubSystem' MaskType='TL_Lookup2D'>. Là masked SubSystem. Properties: DataType, BreakpointsX, BreakpointsY, TableData. Configs đọc qua MaskValueString/MaskNames hoặc Array-type <P>."
+  },
+  {
+    "name_ui": "Product",
+    "name_xml": "Product",
+    "description": "Product block — nhân/chia nhiều tín hiệu. Trong XML: <Block BlockType='Product'>. Properties: Inputs (pattern *//), SaturateOnIntegerOverflow (on/off), OutDataTypeStr, RndMeth. Blocks nằm trong simulink/systems/system_*.xml."
+  },
+  {
+    "name_ui": "Unit Delay",
+    "name_xml": "UnitDelay",
+    "description": "Unit Delay block — trễ 1 bước thời gian. Trong XML: <Block BlockType='UnitDelay'>. Properties: InitialCondition, SampleTime, X0. Khác với Delay block (BlockType='Delay'). Blocks nằm trong simulink/systems/system_*.xml."
+  },
+  {
+    "name_ui": "Switch",
+    "name_xml": "Switch",
+    "description": "Switch block — chọn tín hiệu theo điều kiện. Trong XML: <Block BlockType='Switch'>. Properties: Criteria (u2 >= Threshold, etc.), Threshold, OutDataTypeStr. Blocks nằm trong simulink/systems/system_*.xml."
+  },
+  {
+    "name_ui": "Compare To Constant",
+    "name_xml": "Compare To Constant",
+    "description": "Compare To Constant block — so sánh với hằng số. Trong XML: <Block BlockType='Reference'><P Name='SourceType'>Compare To Constant</P>. Đây là Reference block (không phải native). Properties: const (giá trị so sánh), relop (toán tử: ==, !=, <, >, <=, >=), OutDataTypeStr. Blocks nằm trong simulink/systems/system_*.xml."
+  },
+  {
+    "name_ui": "Logical Operator",
+    "name_xml": "Logic",
+    "description": "Logical Operator block — AND/OR/NOT/XOR. Trong XML: <Block BlockType='Logic'>. Properties: Operator (AND, OR, NOT, XOR, NAND, NOR), Inputs (số lượng input). Blocks nằm trong simulink/systems/system_*.xml."
+  },
+  {
+    "name_ui": "Relational Operator",
+    "name_xml": "RelationalOperator",
+    "description": "Relational Operator block — so sánh hai tín hiệu. Trong XML: <Block BlockType='RelationalOperator'>. Properties: Operator (==, ~=, <, >, <=, >=), OutDataTypeStr. Blocks nằm trong simulink/systems/system_*.xml."
   }
 ]

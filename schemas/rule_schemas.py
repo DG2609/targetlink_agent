@@ -7,7 +7,7 @@ Schemas cho dữ liệu Rule.
 """
 
 from enum import Enum
-from typing import Literal
+from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -48,6 +48,12 @@ class RuleCondition(str, Enum):
     NOT_EMPTY = "not_empty"
     CONTAINS = "contains"
     IN_LIST = "in_list"
+    # Numeric comparisons (convert to float before comparing)
+    GREATER_THAN = "greater_than"
+    LESS_THAN = "less_than"
+    GREATER_EQUAL = "greater_equal"
+    LESS_EQUAL = "less_equal"
+    REGEX_MATCH = "regex_match"   # re.search(expected_value, actual_value)
 
 
 class AdditionalConfig(BaseModel):
@@ -68,7 +74,7 @@ class AdditionalConfig(BaseModel):
         description="Tên config phụ",
         examples=["OutDataTypeStr", "PortDimensions", "RndMeth"],
     )
-    condition: RuleCondition = Field(description="Điều kiện check")
+    condition: RuleCondition = Field(description="Điều kiện check: equal, not_equal, not_empty, contains, in_list, greater_than, less_than, greater_equal, less_equal, regex_match")
     expected_value: str = Field(
         default="",
         description="Giá trị mong đợi",
@@ -102,6 +108,16 @@ class ParsedRule(BaseModel):
         ...     ],
         ...     compound_logic="AND",
         ...     target_block_types=["TL_Inport"],
+        ... )
+
+    Example — model-level rule:
+        >>> p = ParsedRule(
+        ...     block_keyword="",
+        ...     rule_alias="Code generation target",
+        ...     config_name="SystemTargetFile",
+        ...     condition=RuleCondition.EQUAL, expected_value="ert.tlc",
+        ...     rule_type="model_level",
+        ...     config_component_class="Simulink.RTWCC",
         ... )
     """
 
@@ -153,7 +169,7 @@ class ParsedRule(BaseModel):
         examples=["SaturateOnIntegerOverflow", "OutDataTypeStr", "DataType"],
     )
     condition: RuleCondition = Field(
-        description="Loại so sánh: equal, not_equal, not_empty, contains, in_list",
+        description="Loại so sánh: equal, not_equal, not_empty, contains, in_list, greater_than, less_than, greater_equal, less_equal, regex_match",
     )
     expected_value: str = Field(
         description="Giá trị mong đợi",
@@ -201,4 +217,23 @@ class ParsedRule(BaseModel):
             "5 = contextual (phụ thuộc parent subsystem context)"
         ),
         examples=[1, 2, 3, 4, 5],
+    )
+
+    # Rule type classification
+    rule_type: Literal["block_level", "config_only", "model_level"] = Field(
+        default="block_level",
+        description=(
+            "Loại rule: "
+            "block_level = check config trên block cụ thể, "
+            "config_only = tìm tất cả blocks có config (không biết block type), "
+            "model_level = đọc từ Simulink ConfigSet (solver/codegen/hardware settings)"
+        ),
+    )
+    config_component_class: Optional[str] = Field(
+        default=None,
+        description=(
+            "Chỉ cho model_level: ClassName của ConfigSet component. "
+            "VD: 'Simulink.RTWCC' (codegen), 'Simulink.SolverCC' (solver), "
+            "'Simulink.HardwareCC' (hardware), 'Simulink.OptimizationCC' (optimization)"
+        ),
     )

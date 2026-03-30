@@ -250,3 +250,54 @@ Agent 3 chạy static check trước khi execute. Các quy tắc này tồn tạ
 - Không hardcode tên file XML — mỗi model có số lượng system files khác nhau, dùng `glob("system_*.xml")`
 - Bọc mọi `.text` access trong check `is not None` vì XML nodes có thể không có text content
 - Luôn có `try/except` cho từng block — 1 block lỗi không nên crash toàn bộ script
+
+**Numeric conditions** (greater_than / less_than / greater_equal / less_equal):
+Dùng `float()` để so sánh — KHÔNG so sánh string trực tiếp:
+```python
+# greater_than example
+try:
+    passed = float(value) > float(expected_value)
+except (ValueError, TypeError):
+    passed = False  # non-numeric value → fail
+```
+Áp dụng tương tự cho less_than (<), greater_equal (>=), less_equal (<=).
+
+**Regex condition** (regex_match):
+Dùng `re.search()` — import re ở đầu file:
+```python
+import re
+# regex_match example
+try:
+    passed = bool(re.search(expected_value, str(value)))
+except re.error:
+    passed = False  # invalid pattern → fail
+```
+
+### Model-Level Config Rules (solver/codegen settings)
+
+Khi rule check model settings (không phải block configs), dùng `config_reader`:
+
+→ Agent 2 nhận `rule_type: model_level` trong prompt → biết đây là model-level rule.
+→ Prompt sẽ có `## [MODEL-LEVEL RULE]` header — KHÔNG tìm blocks.
+
+```python
+import sys, json, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from utils.config_reader import read_config_setting, read_all_config_settings
+
+def check_rule(model_dir: str) -> dict:
+    actual = read_config_setting(model_dir, "Simulink.RTWCC", "SystemTargetFile")
+    passed = actual == "ert.tlc" if actual is not None else False
+    return {
+        "rule_id": "RXXX",
+        "total_blocks": 1,
+        "pass_count": 1 if passed else 0,
+        "fail_count": 0 if passed else 1,
+        "details": {
+            "pass": [{"setting": "SystemTargetFile", "value": actual}] if passed else [],
+            "fail": [{"setting": "SystemTargetFile", "value": actual, "expected": "ert.tlc"}] if not passed else []
+        }
+    }
+```
+
+Class names: `Simulink.SolverCC` (solver), `Simulink.RTWCC` (codegen), `Simulink.OptimizationCC`, `Simulink.HardwareCC`, `Simulink.DataIOCC`

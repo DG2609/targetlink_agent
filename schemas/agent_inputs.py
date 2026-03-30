@@ -18,6 +18,18 @@ from pydantic import BaseModel, Field
 from typing import Optional
 
 
+def _str_attr(obj, name: str, default: str) -> str:
+    """Safely read a str attribute from obj, falling back to default if missing or non-str."""
+    val = getattr(obj, name, default)
+    return val if isinstance(val, str) else default
+
+
+def _optional_str_attr(obj, name: str) -> Optional[str]:
+    """Safely read an Optional[str] attribute from obj, returning None if missing or non-str."""
+    val = getattr(obj, name, None)
+    return val if isinstance(val, str) else None
+
+
 # ── Agent 2: Code Generator ─────────────────────────
 
 
@@ -127,35 +139,107 @@ class Agent2Input(BaseModel):
         ),
     )
 
+    # Rule type (từ ParsedRule) — plain str (not Literal) vì nhận qua _str_attr coercion
+    # Giá trị hợp lệ: "block_level" | "config_only" | "model_level"
+    rule_type: str = Field(
+        default="block_level",
+        description="block_level / config_only / model_level",
+    )
+    config_component_class: Optional[str] = Field(
+        default=None,
+        description="For model_level: ConfigSet class, e.g., 'Simulink.RTWCC'",
+    )
+
     # Cross-rule cache (từ rules trước cùng model)
     cache_summary: str = Field(
         default="",
         description="Cache summary từ rules trước cùng model (cross-rule knowledge)",
     )
 
-    def to_prompt(self) -> str:
+    def _to_prompt_model_level(self) -> str:
+        """Prompt cho model-level rules — đọc từ Simulink ConfigSet, không phải block.
+
+        Note: config_map_analysis không áp dụng cho model-level rules (không có block XML
+        cần phân tích) — field được nhận nhưng không đưa vào prompt.
+        """
+        parts: list[str] = []
+
+        parts.append(
+            f"## [MODEL-LEVEL RULE]\n"
+            f"rule_id: {self.rule_id}\n"
+            f"config_name: {self.config_name}\n"
+            f"condition: {self.condition}\n"
+            f"expected_value: {self.expected_value}\n"
+            f"config_component_class: {self.config_component_class or 'UNKNOWN — dùng list_config_components() để tìm'}\n"
+            f"output_filename: {self.output_filename}\n"
+            f"\n"
+            f"→ ĐÂY LÀ MODEL-LEVEL RULE: KHÔNG check blocks, đọc từ ConfigSet.\n"
+            f"→ Dùng: from utils.config_reader import read_config_setting\n"
+            f"→ Call: read_config_setting(model_dir, '{self.config_component_class or '<class>'}', '{self.config_name}')\n"
+            f"→ KHÔNG dùng block-discovery tools (find_config_locations, block search APIs)"
+        )
+
+        # Config discovery ground truth nếu có
+        if self.config_discovery_location_type:
+            parts.append(
+                f"## [GROUND TRUTH from diff]\n"
+                f"  location_type: {self.config_discovery_location_type}\n"
+                f"  xpath_pattern: {self.config_discovery_xpath_pattern}"
+            )
+
+        # Cache nếu có
+        if self.cache_summary and not self.config_discovery_location_type:
+            parts.append(f"## [CROSS-RULE CACHE]\n{self.cache_summary}")
+
+        return "\n\n".join(parts)
+
+    def to_prompt(self) -> str:  # noqa: C901 (acceptable complexity for tiered prompt builder)
+        # Model-level rules: completely different prompt (no block context)
+        if self.rule_type == "model_level":
+            return self._to_prompt_model_level()
+
+        parts: list[str] = []
+
+        # ── TIER 1 — CORE TASK ────────────────────────────────────────────────
+        # Luôn hiện: rule_id, block info, config_name, condition, expected_value,
+        # config_map_analysis, output_filename.
         if self.block_name_xml:
             block_line = (
-                f"block: name_xml={self.block_name_xml}, name_ui={self.block_name_ui}, "
-                f"xml_representation={self.xml_representation}"
+                f"  name_xml: {self.block_name_xml}\n"
+                f"  name_ui: {self.block_name_ui}\n"
+                f"  xml_representation: {self.xml_representation}"
             )
         else:
             block_line = (
-                "block: KHÔNG XÁC ĐỊNH — rule chỉ nói về config, "
-                "dùng find_config_locations() và list_all_block_types() để tìm tất cả block types có config này"
+                "  block: KHÔNG XÁC ĐỊNH — rule chỉ nói về config,\n"
+                "  dùng find_config_locations() và list_all_block_types() "
+                "để tìm tất cả block types có config này"
             )
-        context = (
+        tier1 = (
+            f"## [TIER 1 — CORE TASK]\n"
             f"rule_id: {self.rule_id}\n"
-            f"{block_line}\n"
+            f"block:\n{block_line}\n"
             f"config_name: {self.config_name}\n"
             f"condition: {self.condition}\n"
             f"expected_value: {self.expected_value}\n"
             f"config_map_analysis: {self.config_map_analysis}\n"
             f"output_filename: {self.output_filename}"
         )
+        if self.target_block_types:
+            tier1 += f"\ntarget_block_types: {self.target_block_types}"
+        if self.scope != "all_instances":
+            tier1 += f"\nscope: {self.scope}"
+            if self.scope_filter:
+                tier1 += f"\nscope_filter: {self.scope_filter}"
+        parts.append(tier1)
+
+        # ── TIER 2 — GROUND TRUTH ─────────────────────────────────────────────
+        # Chỉ khi có config_discovery (Agent 1.5 đã chạy diff).
+        # Agent 2 nên BỎ QUA exploration steps 1-2 và dùng trực tiếp xpath_pattern.
         if self.config_discovery_location_type:
-            context += (
-                f"\n\nCONFIG DISCOVERY (ground truth from model diff — Agent 1.5):\n"
+            parts.append(
+                f"## [TIER 2 — GROUND TRUTH]\n"
+                f"CONFIG DISCOVERY (verified from model diff — Agent 1.5):\n"
                 f"  block_type: {self.config_discovery_block_type}\n"
                 f"  mask_type: {self.config_discovery_mask_type}\n"
                 f"  config_name: {self.config_discovery_config_name}\n"
@@ -163,27 +247,117 @@ class Agent2Input(BaseModel):
                 f"  xpath_pattern: {self.config_discovery_xpath_pattern}\n"
                 f"  default_value: {self.config_discovery_default_value}\n"
                 f"  value_format: {self.config_discovery_value_format}\n"
-                f"  notes: {self.config_discovery_notes}"
+                f"  notes: {self.config_discovery_notes}\n"
+                f"→ BỎ QUA exploration steps 1-2, dùng xpath_pattern trực tiếp."
             )
-        # ParsedRule extended fields (chỉ hiện khi non-default)
-        if self.compound_logic != "SINGLE":
-            context += f"\ncompound_logic: {self.compound_logic}"
-            if self.additional_configs_json:
-                context += f"\nadditional_configs: {self.additional_configs_json}"
-        if self.target_block_types:
-            context += f"\ntarget_block_types: {self.target_block_types}"
-        if self.scope != "all_instances":
-            context += f"\nscope: {self.scope}, scope_filter: {self.scope_filter}"
-        if self.complexity_level > 1:
-            context += f"\ncomplexity_level: {self.complexity_level}"
 
-        if self.blocks_raw_data:
-            context += f"\n\nBLOCKS_DICTIONARY_ENTRY (raw from blocks.json):\n{self.blocks_raw_data}"
-        if self.bddefaults_context:
-            context += f"\n\nBLOCK_DEFAULTS (from bddefaults.xml):\n{self.bddefaults_context}"
-        if self.cache_summary:
-            context += f"\n\n{self.cache_summary}"
-        return context
+        # ── TIER 3 — BLOCK CONTEXT ────────────────────────────────────────────
+        # Chỉ khi có blocks_raw_data hoặc bddefaults_context.
+        # blocks_raw_data: parse JSON → lọc name_xml/name_ui + configs liên quan config_name.
+        # bddefaults_context: parse JSON → chỉ lấy default của config_name đó.
+        has_blocks = bool(self.blocks_raw_data)
+        has_defaults = bool(self.bddefaults_context)
+        if has_blocks or has_defaults:
+            tier3_lines: list[str] = ["## [TIER 3 — BLOCK CONTEXT]"]
+
+            if has_blocks:
+                try:
+                    blocks_data: dict = _json.loads(self.blocks_raw_data)
+                    # Trích name_xml, name_ui (nếu có)
+                    name_xml_val = blocks_data.get("name_xml", blocks_data.get("name", ""))
+                    name_ui_val = blocks_data.get("name_ui", "")
+                    block_header = f"  name_xml: {name_xml_val}"
+                    if name_ui_val:
+                        block_header += f"\n  name_ui: {name_ui_val}"
+
+                    # Lọc configs có key chứa config_name (case-insensitive)
+                    config_key_lower = self.config_name.lower()
+                    configs: dict = blocks_data.get("configs", {})
+                    matched: dict = {
+                        k: v for k, v in configs.items()
+                        if config_key_lower in k.lower()
+                    }
+                    if matched:
+                        config_lines = "\n".join(
+                            f"    {k}: {v}" for k, v in matched.items()
+                        )
+                        block_context = (
+                            f"{block_header}\n"
+                            f"  relevant configs (key contains '{self.config_name}'):\n"
+                            f"{config_lines}"
+                        )
+                    else:
+                        # Không match → hiện top 5 config key names để Agent 2 tham khảo
+                        top5 = list(configs.keys())[:5]
+                        block_context = (
+                            f"{block_header}\n"
+                            f"  no config key matches '{self.config_name}' — "
+                            f"top 5 available keys: {top5}"
+                        )
+                    tier3_lines.append(f"BLOCKS_DICTIONARY_ENTRY:\n{block_context}")
+                except (_json.JSONDecodeError, AttributeError, TypeError):
+                    # Fallback: truncate raw string khi JSON parse thất bại
+                    fallback = self.blocks_raw_data[:200]
+                    tier3_lines.append(
+                        f"BLOCKS_DICTIONARY_ENTRY (parse failed — truncated):\n{fallback}"
+                    )
+
+            if has_defaults:
+                try:
+                    defaults_data: dict = _json.loads(self.bddefaults_context)
+                    # Tìm default value cho config_name (case-insensitive key lookup)
+                    config_key_lower = self.config_name.lower()
+                    default_val: str | None = None
+                    for k, v in defaults_data.items():
+                        if k.lower() == config_key_lower:
+                            default_val = str(v)
+                            break
+                    if default_val is not None:
+                        tier3_lines.append(
+                            f"BLOCK_DEFAULTS (bddefaults.xml):\n"
+                            f"  {self.config_name} default: {default_val}"
+                        )
+                    else:
+                        # config_name không có default → ghi nhận rõ
+                        tier3_lines.append(
+                            f"BLOCK_DEFAULTS (bddefaults.xml):\n"
+                            f"  '{self.config_name}' không có default entry trong bddefaults"
+                        )
+                except (_json.JSONDecodeError, AttributeError, TypeError):
+                    fallback = self.bddefaults_context[:200]
+                    tier3_lines.append(
+                        f"BLOCK_DEFAULTS (parse failed — truncated):\n{fallback}"
+                    )
+
+            parts.append("\n".join(tier3_lines))
+
+        # ── TIER 4 — CROSS-RULE CACHE ─────────────────────────────────────────
+        # Chỉ khi có cache_summary VÀ KHÔNG có config_discovery.
+        # Tránh duplicate khi Tier 2 đã cung cấp ground truth đầy đủ hơn.
+        if self.cache_summary and not self.config_discovery_location_type:
+            parts.append(
+                f"## [TIER 4 — CROSS-RULE CACHE]\n"
+                f"{self.cache_summary}"
+            )
+
+        # ── TIER 5 — ADVANCED ────────────────────────────────────────────────
+        # Chỉ khi compound_logic != "SINGLE" HOẶC complexity_level >= 3.
+        # Chứa: compound_logic, additional_configs, target_block_types, scope, complexity_level.
+        is_compound = self.compound_logic != "SINGLE"
+        is_complex = self.complexity_level >= 3
+        if is_compound or is_complex:
+            tier5_lines: list[str] = ["## [TIER 5 — ADVANCED]"]
+            if is_compound:
+                tier5_lines.append(f"compound_logic: {self.compound_logic}")
+                if self.additional_configs_json:
+                    tier5_lines.append(
+                        f"additional_configs: {self.additional_configs_json}"
+                    )
+            if is_complex:
+                tier5_lines.append(f"complexity_level: {self.complexity_level}")
+            parts.append("\n".join(tier5_lines))
+
+        return "\n\n".join(parts)
 
     @classmethod
     def from_pipeline(
@@ -206,6 +380,8 @@ class Agent2Input(BaseModel):
             scope=parsed_rule.scope,
             scope_filter=parsed_rule.scope_filter,
             complexity_level=parsed_rule.complexity_level,
+            rule_type=_str_attr(parsed_rule, 'rule_type', 'block_level'),
+            config_component_class=_optional_str_attr(parsed_rule, 'config_component_class'),
             blocks_raw_data=blocks_raw_data,
             bddefaults_context=bddefaults_context,
         )

@@ -103,7 +103,7 @@ class TestAgent2InputEmptyBlock:
             output_filename="check_rule_R001.py",
         )
         prompt = inp.to_prompt()
-        assert "name_xml=Gain" in prompt
+        assert "name_xml: Gain" in prompt
         assert "KHÔNG XÁC ĐỊNH" not in prompt
 
     def test_xml_representation_in_prompt(self):
@@ -119,7 +119,7 @@ class TestAgent2InputEmptyBlock:
             output_filename="check_rule_R001.py",
         )
         prompt = inp.to_prompt()
-        assert "xml_representation=reference" in prompt
+        assert "xml_representation: reference" in prompt
 
     def test_from_pipeline_with_new_fields(self):
         rule = MagicMock()
@@ -494,6 +494,58 @@ class TestAgent2InputCompoundPrompt:
         assert inp.target_block_types == ["Gain"]
         assert inp.scope == "subsystem"
         assert inp.scope_filter == "Controller/*"
+
+    def test_tier2_ground_truth_shown(self):
+        """config_discovery fields should produce Tier 2 block."""
+        inp = Agent2Input(
+            rule_id="R001",
+            block_name_xml="Gain", block_name_ui="Gain",
+            config_name="SaturateOnIntegerOverflow",
+            condition="equal", expected_value="on",
+            config_map_analysis="test",
+            output_filename="check_rule_R001.py",
+            config_discovery_location_type="direct_P",
+            config_discovery_block_type="Gain",
+            config_discovery_xpath_pattern=".//Block[@BlockType='Gain']/P[@Name='SaturateOnIntegerOverflow']",
+        )
+        prompt = inp.to_prompt()
+        assert "TIER 2" in prompt
+        assert "GROUND TRUTH" in prompt
+        assert "direct_P" in prompt
+        assert "BỎ QUA" in prompt
+
+    def test_tier4_suppressed_when_config_discovery_present(self):
+        """cache_summary should NOT appear when config_discovery is also set."""
+        inp = Agent2Input(
+            rule_id="R001",
+            block_name_xml="Gain", block_name_ui="Gain",
+            config_name="SaturateOnIntegerOverflow",
+            condition="equal", expected_value="on",
+            config_map_analysis="test",
+            output_filename="check_rule_R001.py",
+            cache_summary="CACHE: previously found direct_P at xpath X",
+            config_discovery_location_type="direct_P",
+        )
+        prompt = inp.to_prompt()
+        assert "TIER 2" in prompt          # ground truth present
+        assert "TIER 4" not in prompt      # cache suppressed
+        assert "CACHE" not in prompt       # cache content not leaked
+
+    def test_tier5_shown_for_complex_rule(self):
+        """complexity_level >= 3 should trigger Tier 5 with complexity_level shown."""
+        inp = Agent2Input(
+            rule_id="R040",
+            block_name_xml="SubSystem", block_name_ui="SubSystem",
+            config_name="SomeConfig",
+            condition="equal", expected_value="on",
+            config_map_analysis="test",
+            output_filename="check_rule_R040.py",
+            complexity_level=3,
+        )
+        prompt = inp.to_prompt()
+        assert "TIER 5" in prompt
+        assert "complexity_level: 3" in prompt
+        assert "compound_logic" not in prompt   # not compound, only complex
 
 
 # ══════════════════════════════════════════════════════
@@ -1908,7 +1960,7 @@ class TestAgent2RicherData:
         )
         prompt = inp.to_prompt()
         assert "BLOCKS_DICTIONARY_ENTRY" in prompt
-        assert "Gain block info" in prompt
+        assert "name_xml: Gain" in prompt
 
     def test_bddefaults_in_prompt(self):
         inp = Agent2Input(
@@ -1961,3 +2013,280 @@ class TestAgent2RicherData:
         )
         assert inp.blocks_raw_data == '{"test": true}'
         assert inp.bddefaults_context == '{"SaturateOnIntegerOverflow": "off"}'
+
+
+# ══════════════════════════════════════════════════════
+# Fix 2: blocks.json expansion to 21 entries
+# ══════════════════════════════════════════════════════
+
+
+class TestBlocksJsonExpansion:
+    """Fix 2: blocks.json now has 21 entries including TL_* blocks."""
+
+    @pytest.fixture
+    def blocks_data(self):
+        import json
+        import os
+        path = os.path.join(os.path.dirname(__file__), "..", "data", "blocks.json")
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+
+    def test_block_count_at_least_21(self, blocks_data):
+        assert len(blocks_data) >= 21
+
+    def test_tl_blocks_present(self, blocks_data):
+        names_xml = {b["name_xml"] for b in blocks_data}
+        for tl in ["TL_Inport", "TL_Outport", "TL_Gain", "TL_Sum", "TL_Abs", "TL_Delay", "TL_Lookup1D", "TL_Lookup2D"]:
+            assert tl in names_xml, f"Missing TL block: {tl}"
+
+    def test_common_simulink_blocks_present(self, blocks_data):
+        names_xml = {b["name_xml"] for b in blocks_data}
+        for block in ["Product", "UnitDelay", "Switch"]:
+            assert block in names_xml, f"Missing block: {block}"
+
+    def test_all_entries_have_required_fields(self, blocks_data):
+        for entry in blocks_data:
+            assert "name_ui" in entry
+            assert "name_xml" in entry
+            assert "description" in entry
+            assert len(entry["description"]) > 10, f"Description too short for {entry['name_xml']}"
+
+    def test_tl_descriptions_mention_masktype(self, blocks_data):
+        tl_entries = [b for b in blocks_data if b["name_xml"].startswith("TL_")]
+        for entry in tl_entries:
+            assert "MaskType" in entry["description"] or "masked" in entry["description"].lower(), \
+                f"TL block {entry['name_xml']} description should mention MaskType"
+
+
+# ══════════════════════════════════════════════════════
+# Fix 3: RuleCondition numeric comparisons
+# ══════════════════════════════════════════════════════
+
+
+class TestRuleConditionNumeric:
+    """Fix 3: RuleCondition now supports numeric comparisons."""
+
+    def test_new_conditions_exist(self):
+        assert RuleCondition.GREATER_THAN.value == "greater_than"
+        assert RuleCondition.LESS_THAN.value == "less_than"
+        assert RuleCondition.GREATER_EQUAL.value == "greater_equal"
+        assert RuleCondition.LESS_EQUAL.value == "less_equal"
+
+    def test_total_condition_count(self):
+        assert len(RuleCondition) == 10  # 5 original + 4 numeric + 1 regex_match
+
+    def test_parsed_rule_accepts_numeric_condition(self):
+        rule = ParsedRule(
+            block_keyword="delay",
+            rule_alias="Delay block",
+            config_name="DelayLength",
+            condition=RuleCondition.GREATER_THAN,
+            expected_value="0",
+        )
+        assert rule.condition == RuleCondition.GREATER_THAN
+        assert rule.expected_value == "0"
+
+    def test_additional_config_accepts_numeric_condition(self):
+        from schemas.rule_schemas import AdditionalConfig
+        cfg = AdditionalConfig(
+            config_name="Gain",
+            condition=RuleCondition.GREATER_EQUAL,
+            expected_value="1",
+        )
+        assert cfg.condition == RuleCondition.GREATER_EQUAL
+
+
+# ══════════════════════════════════════════════════════
+# Fix A: RuleCondition.REGEX_MATCH
+# ══════════════════════════════════════════════════════
+
+
+class TestRuleConditionRegex:
+    """Fix A: REGEX_MATCH condition added to RuleCondition."""
+
+    def test_regex_match_exists(self):
+        from schemas.rule_schemas import RuleCondition
+        assert RuleCondition.REGEX_MATCH.value == "regex_match"
+
+    def test_regex_brings_count_to_10(self):
+        from schemas.rule_schemas import RuleCondition
+        assert len(RuleCondition) == 10
+
+    def test_parsed_rule_accepts_regex_condition(self):
+        from schemas.rule_schemas import ParsedRule, RuleCondition
+        rule = ParsedRule(
+            block_keyword="gain",
+            rule_alias="Gain block",
+            config_name="OutDataTypeStr",
+            condition=RuleCondition.REGEX_MATCH,
+            expected_value=r"fixdt\(1,\d+,",
+        )
+        assert rule.condition == RuleCondition.REGEX_MATCH
+        assert "fixdt" in rule.expected_value
+
+
+# ══════════════════════════════════════════════════════
+# Fix B: ConfigSet reader
+# ══════════════════════════════════════════════════════
+
+import os as _os
+MODEL_DIR = _os.path.join(_os.path.dirname(__file__), "..", "data", "model4_CcodeGeneration")
+
+
+class TestConfigReader:
+    """Fix B: config_reader reads simulink/configSet0.xml."""
+
+    def test_import_ok(self):
+        from utils.config_reader import read_config_setting, read_all_config_settings, list_config_components
+        assert callable(read_config_setting)
+
+    def test_read_system_target_file(self):
+        from utils.config_reader import read_config_setting
+        val = read_config_setting(MODEL_DIR, "Simulink.RTWCC", "SystemTargetFile")
+        assert val == "ert.tlc"
+
+    def test_read_target_lang(self):
+        from utils.config_reader import read_config_setting
+        val = read_config_setting(MODEL_DIR, "Simulink.RTWCC", "TargetLang")
+        assert val == "C"
+
+    def test_read_solver(self):
+        from utils.config_reader import read_config_setting
+        val = read_config_setting(MODEL_DIR, "Simulink.SolverCC", "Solver")
+        assert val is not None
+        assert len(val) > 0  # some solver name
+
+    def test_read_all_settings_not_empty(self):
+        from utils.config_reader import read_all_config_settings
+        settings = read_all_config_settings(MODEL_DIR, "Simulink.SolverCC")
+        assert len(settings) > 0
+        assert "Solver" in settings
+
+    def test_list_components(self):
+        from utils.config_reader import list_config_components
+        components = list_config_components(MODEL_DIR)
+        assert "Simulink.SolverCC" in components
+        assert "Simulink.RTWCC" in components
+
+    def test_nonexistent_setting_returns_none(self):
+        from utils.config_reader import read_config_setting
+        val = read_config_setting(MODEL_DIR, "Simulink.SolverCC", "NonExistentSetting")
+        assert val is None
+
+    def test_nonexistent_model_dir_returns_none(self):
+        from utils.config_reader import read_config_setting
+        val = read_config_setting("/nonexistent/path", "Simulink.RTWCC", "SystemTargetFile")
+        assert val is None
+
+    def test_read_all_returns_empty_for_bad_class(self):
+        from utils.config_reader import read_all_config_settings
+        result = read_all_config_settings(MODEL_DIR, "Simulink.NonExistentCC")
+        assert result == {}
+
+
+# ══════════════════════════════════════════════════════
+# Model-Level Rule Support
+# ══════════════════════════════════════════════════════
+
+
+class TestParsedRuleModelLevel:
+    def test_default_rule_type_is_block_level(self):
+        from schemas.rule_schemas import ParsedRule, RuleCondition
+        rule = ParsedRule(block_keyword="gain", rule_alias="Gain",
+                          config_name="SaturateOnIntegerOverflow",
+                          condition=RuleCondition.EQUAL, expected_value="on")
+        assert rule.rule_type == "block_level"
+        assert rule.config_component_class is None
+
+    def test_model_level_rule_accepted(self):
+        from schemas.rule_schemas import ParsedRule, RuleCondition
+        rule = ParsedRule(block_keyword="", rule_alias="CodeGen target",
+                          config_name="SystemTargetFile",
+                          condition=RuleCondition.EQUAL, expected_value="ert.tlc",
+                          rule_type="model_level",
+                          config_component_class="Simulink.RTWCC")
+        assert rule.rule_type == "model_level"
+        assert rule.config_component_class == "Simulink.RTWCC"
+
+    def test_config_only_rule_accepted(self):
+        from schemas.rule_schemas import ParsedRule, RuleCondition
+        rule = ParsedRule(block_keyword="", rule_alias="all blocks",
+                          config_name="SaturateOnIntegerOverflow",
+                          condition=RuleCondition.EQUAL, expected_value="on",
+                          rule_type="config_only")
+        assert rule.rule_type == "config_only"
+        assert rule.config_component_class is None
+
+    def test_solver_model_level_rule(self):
+        from schemas.rule_schemas import ParsedRule, RuleCondition
+        rule = ParsedRule(block_keyword="", rule_alias="Fixed-step solver",
+                          config_name="Solver",
+                          condition=RuleCondition.EQUAL, expected_value="FixedStepDiscrete",
+                          rule_type="model_level",
+                          config_component_class="Simulink.SolverCC")
+        assert rule.rule_type == "model_level"
+        assert "Solver" in rule.config_component_class
+
+
+class TestAgent2InputModelLevel:
+    def _inp(self, config_component_class="Simulink.RTWCC"):
+        from schemas.agent_inputs import Agent2Input
+        return Agent2Input(
+            rule_id="R010", block_name_xml="", block_name_ui="",
+            config_name="SystemTargetFile", condition="equal", expected_value="ert.tlc",
+            config_map_analysis="configSet rule", output_filename="check_rule_R010.py",
+            rule_type="model_level", config_component_class=config_component_class)
+
+    def test_model_level_prompt_has_header(self):
+        assert "MODEL-LEVEL RULE" in self._inp().to_prompt()
+
+    def test_model_level_shows_config_component_class(self):
+        assert "Simulink.RTWCC" in self._inp().to_prompt()
+
+    def test_model_level_shows_config_reader(self):
+        assert "config_reader" in self._inp().to_prompt()
+
+    def test_model_level_no_block_discovery_tools(self):
+        prompt = self._inp().to_prompt()
+        # Prompt mentions find_config_locations only in a prohibition ("KHÔNG dùng"),
+        # never as a positive instruction. find_blocks must not appear at all.
+        assert "find_blocks" not in prompt
+        # The prohibition must be present
+        assert "KHÔNG dùng" in prompt
+        assert "find_config_locations" in prompt  # mentioned as forbidden, not as instruction
+
+    def test_model_level_unknown_class_shows_helper(self):
+        prompt = self._inp(config_component_class=None).to_prompt()
+        assert "UNKNOWN" in prompt
+        assert "list_config_components" in prompt
+
+    def test_block_level_prompt_unaffected(self):
+        from schemas.agent_inputs import Agent2Input
+        inp = Agent2Input(rule_id="R001", block_name_xml="Gain", block_name_ui="Gain",
+                          config_name="SaturateOnIntegerOverflow",
+                          condition="equal", expected_value="on",
+                          config_map_analysis="test", output_filename="check_rule_R001.py",
+                          rule_type="block_level")
+        prompt = inp.to_prompt()
+        assert "TIER 1" in prompt
+        assert "MODEL-LEVEL" not in prompt
+
+    def test_from_pipeline_passes_rule_type(self):
+        from unittest.mock import MagicMock
+        from schemas.agent_inputs import Agent2Input
+        from schemas.rule_schemas import RuleCondition
+        rule = MagicMock(); rule.rule_id = "R010"
+        parsed = MagicMock()
+        parsed.block_keyword = ""; parsed.config_name = "SystemTargetFile"
+        parsed.condition = RuleCondition.EQUAL; parsed.expected_value = "ert.tlc"
+        parsed.compound_logic = "SINGLE"; parsed.additional_configs = []
+        parsed.target_block_types = []; parsed.scope = "all_instances"
+        parsed.scope_filter = ""; parsed.complexity_level = 1
+        parsed.rule_type = "model_level"
+        parsed.config_component_class = "Simulink.RTWCC"
+        block = MagicMock()
+        block.name_xml = ""; block.name_ui = ""; block.xml_representation = "unknown"
+        block.config_map_analysis = "configSet"
+        inp = Agent2Input.from_pipeline(rule, parsed, block)
+        assert inp.rule_type == "model_level"
+        assert inp.config_component_class == "Simulink.RTWCC"

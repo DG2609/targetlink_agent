@@ -291,3 +291,70 @@ class TestRealModel:
         blocks = find_blocks_with_config(root, "SaturateOnIntegerOverflow")
         types = {get_block_identity(b) for b in blocks}
         assert "Abs" in types
+
+
+# ══════════════════════════════════════════════════════
+# Tests: get_block_config with Array child elements (Fix 1)
+# ══════════════════════════════════════════════════════
+
+
+class TestGetBlockConfigArray:
+    """Fix 1: get_block_config handles <Array> child elements."""
+
+    def _make_block_with_array_p(self, config_name: str, values: list):
+        """Helper: build XML block with Array-type parameter."""
+        block = etree.Element("Block", BlockType="Gain")
+        p = etree.SubElement(block, "P", Name=config_name)
+        array = etree.SubElement(p, "Array", Type="Matrix", size=str(len(values)))
+        for v in values:
+            d = etree.SubElement(array, "D")
+            d.text = v
+        return block
+
+    def _make_block_with_instance_array_p(self, config_name: str, values: list):
+        """Helper: build block with Array in InstanceData."""
+        block = etree.Element("Block", BlockType="Reference")
+        instance = etree.SubElement(block, "InstanceData")
+        p = etree.SubElement(instance, "P", Name=config_name)
+        array = etree.SubElement(p, "Array", Type="Matrix", size=str(len(values)))
+        for v in values:
+            d = etree.SubElement(array, "D")
+            d.text = v
+        return block
+
+    def test_single_array_value(self):
+        block = self._make_block_with_array_p("OutDataTypeStr", ["fixdt(1,16,12)"])
+        result = get_block_config(block, "OutDataTypeStr")
+        assert result == "fixdt(1,16,12)"
+
+    def test_multi_array_values_pipe_joined(self):
+        block = self._make_block_with_array_p("BreakpointsX", ["0", "1", "2", "3"])
+        result = get_block_config(block, "BreakpointsX")
+        assert result == "0|1|2|3"
+
+    def test_array_in_instance_data(self):
+        block = self._make_block_with_instance_array_p("OutDataTypeStr", ["fixdt(0,8,0)"])
+        result = get_block_config(block, "OutDataTypeStr")
+        assert result == "fixdt(0,8,0)"
+
+    def test_plain_text_p_still_works(self):
+        """Non-Array <P> must still return text value normally."""
+        block = etree.Element("Block", BlockType="Gain")
+        p = etree.SubElement(block, "P", Name="SaturateOnIntegerOverflow")
+        p.text = "on"
+        result = get_block_config(block, "SaturateOnIntegerOverflow")
+        assert result == "on"
+
+    def test_missing_config_returns_default(self):
+        """Config not found → returns default_value."""
+        block = etree.Element("Block", BlockType="Gain")
+        result = get_block_config(block, "NonExistent", "off")
+        assert result == "off"
+
+    def test_empty_array_returns_none(self):
+        """<Array> with no <D> elements → falls through to default."""
+        block = etree.Element("Block", BlockType="Gain")
+        p = etree.SubElement(block, "P", Name="OutDataTypeStr")
+        etree.SubElement(p, "Array", Type="Matrix", size="0")
+        result = get_block_config(block, "OutDataTypeStr", default_value="fallback")
+        assert result == "fallback"
