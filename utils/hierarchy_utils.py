@@ -850,7 +850,9 @@ def _find_port_number(
                 if dst_parts[0] == dst_sid and len(dst_parts) > 1:
                     port_spec = dst_parts[1]  # "in:1"
                     if ":" in port_spec:
-                        return port_spec.split(":")[1]
+                        parts = port_spec.split(":", 1)
+                        if len(parts) > 1 and parts[1]:
+                            return parts[1]
 
     return "1"
 

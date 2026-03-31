@@ -80,6 +80,8 @@ def parse_bddefaults(model_dir: str) -> dict[str, dict[str, str]]:
             if name:
                 configs[name] = value.strip()
 
+        if block_type in defaults:
+            logger.warning(f"bddefaults.xml: BlockType='{block_type}' appears multiple times — later entry wins")
         defaults[block_type] = configs
 
     _defaults_cache[model_dir] = defaults
