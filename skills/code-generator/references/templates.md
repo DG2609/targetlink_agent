@@ -609,3 +609,76 @@ if __name__ == "__main__":
     result = check_rule(sys.argv[1])
     print(json.dumps(result, indent=2))
 ```
+
+
+## Template — Model-Level Rule (Solver / CodeGen settings)
+
+Dùng khi: `rule_type = "model_level"` — kiểm tra model settings (solver, code gen, optimization). KHÔNG tìm blocks, không import block_finder.
+
+```python
+"""
+Auto-generated rule check: {rule_id}
+Model-level rule: {CONFIG_CLASS}.{SETTING_NAME} phai bang '{EXPECTED_VALUE}'
+"""
+import json
+import sys
+import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from utils.slx_extractor import extract_slx
+from utils.config_reader import read_config_setting, list_config_components
+
+
+def check_rule(model_dir: str) -> dict:
+    model_dir = extract_slx(model_dir)
+
+    actual = read_config_setting(model_dir, "{CONFIG_CLASS}", "{SETTING_NAME}")
+
+    if actual is None:
+        available = list_config_components(model_dir)
+        return {
+            "rule_id": "{rule_id}",
+            "total_blocks": 1,
+            "pass_count": 0,
+            "fail_count": 1,
+            "details": {
+                "pass": [],
+                "fail": [{
+                    "setting": "{SETTING_NAME}",
+                    "class": "{CONFIG_CLASS}",
+                    "value": None,
+                    "expected": "{EXPECTED_VALUE}",
+                    "note": f"Setting not found. Available classes: {available}",
+                }],
+            },
+        }
+
+    passed = actual == "{EXPECTED_VALUE}"
+    entry = {
+        "setting": "{SETTING_NAME}",
+        "class": "{CONFIG_CLASS}",
+        "value": actual,
+        "expected": "{EXPECTED_VALUE}",
+    }
+
+    return {
+        "rule_id": "{rule_id}",
+        "total_blocks": 1,
+        "pass_count": 1 if passed else 0,
+        "fail_count": 0 if passed else 1,
+        "details": {
+            "pass": [entry] if passed else [],
+            "fail": [] if passed else [entry],
+        },
+    }
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: python check_rule_{rule_id}.py <model_dir_or_slx>")
+        sys.exit(1)
+    result = check_rule(sys.argv[1])
+    print(json.dumps(result, indent=2))
+```
+
+**Notes:** `CONFIG_CLASS`: "Simulink.RTWCC" / "Simulink.SolverCC" / "Simulink.OptimizationCC" / "Simulink.HardwareCC" / "Simulink.DataIOCC". `total_blocks=1` vi model co 1 configSet, khong phai per-block.
