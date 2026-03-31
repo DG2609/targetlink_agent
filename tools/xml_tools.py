@@ -565,15 +565,15 @@ class XmlToolkit(Toolkit):
                     continue
 
                 for block in root.findall("Block"):
-                    # Check direct <P>
-                    node = block.find(f"P[@Name='{config_name}']")
+                    # Check direct <P> (injection-safe: attribute comparison, not XPath f-string)
+                    node = next((p for p in block.findall("P") if p.get("Name") == config_name), None)
                     found_in = "direct_P"
 
                     # Check InstanceData/<P>
                     if node is None:
                         inst = block.find("InstanceData")
                         if inst is not None:
-                            node = inst.find(f"P[@Name='{config_name}']")
+                            node = next((p for p in inst.findall("P") if p.get("Name") == config_name), None)
                             found_in = "InstanceData"
 
                     if node is not None:
