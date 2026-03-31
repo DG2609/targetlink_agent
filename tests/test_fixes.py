@@ -873,35 +873,37 @@ class TestTruncation:
         object.__setattr__(settings, "STDOUT_TRUNCATION", 5000)
         object.__setattr__(settings, "STDERR_TRUNCATION", 3000)
 
-    def test_stdout_truncated_from_head(self, tmp_path):
-        """stdout longer than STDOUT_TRUNCATION should keep the first N chars."""
+    def test_stdout_full_in_execute(self, tmp_path):
+        """_execute() must return FULL stdout — truncation happens only in validate() for display.
+
+        Regression: previous version truncated stdout in _execute(), which broke json.loads()
+        on large model outputs (cutting JSON mid-way → parse error → false WRONG_RESULT).
+        """
         import textwrap
         from agents.agent3_validator import Validator
         from config import settings
 
-        # Write a script that prints exactly 200 'A' chars then 200 'B' chars
+        # Write a script that prints exactly 200 'A' chars then 200 'B' chars (400 total)
         code = textwrap.dedent("""\
             import sys, json
             def main():
                 print("A" * 200 + "B" * 200, end="")
-                # also emit valid json on stdout for comparison
             main()
         """)
         code_file = tmp_path / "emit_long.py"
         code_file.write_text(code, encoding="utf-8")
 
-        # Set limit to 100 chars (shorter than 400 total)
+        # Set limit to 100 chars (much shorter than 400 total)
         original_limit = settings.STDOUT_TRUNCATION
         object.__setattr__(settings, "STDOUT_TRUNCATION", 100)
         try:
             v = Validator(timeout=10)
             result = v._execute(str(code_file), str(tmp_path))
             stdout = result["stdout"]
-            # Should be exactly 100 chars (HEAD)
-            assert len(stdout) == 100
-            # HEAD: should start with A's
+            # _execute() must return FULL stdout (400 chars), not truncated to 100
+            assert len(stdout) == 400
             assert stdout.startswith("A")
-            assert "B" not in stdout
+            assert stdout.endswith("B")
         finally:
             object.__setattr__(settings, "STDOUT_TRUNCATION", original_limit)
 

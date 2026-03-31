@@ -206,13 +206,14 @@ def check_rule(model_dir: str) -> dict:
             name = block.get("Name", "Unknown")
             path = f"{xml_file.stem}/{name}"
             # Lấy default theo block type thực tế
-            default_val = get_default_value(model_dir, block.get("BlockType", ""), "{CONFIG_NAME}")
+            # Use true identity (MaskType > SourceType > BlockType) for correct defaults lookup
+            default_val = get_default_value(model_dir, identity, "{CONFIG_NAME}")
             value = get_block_config(block, "{CONFIG_NAME}", default_val)
 
             if {DIEU_KIEN_CHECK}:
-                results["pass"].append({"block_name": name, "block_path": path, "value": f"{value} ({identity})"})
+                results["pass"].append({"block_name": name, "block_path": path, "value": value, "block_type": identity})
             else:
-                results["fail"].append({"block_name": name, "block_path": path, "value": f"{value} ({identity})"})
+                results["fail"].append({"block_name": name, "block_path": path, "value": value, "block_type": identity})
 
     return {
         "rule_id": "{rule_id}",

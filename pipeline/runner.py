@@ -71,8 +71,16 @@ async def run_pipeline(
 
     # ── Chuẩn bị ──────────────────────────────────────
     model_dir = extract_slx(model_path)
-    rules = [RuleInput(**r) for r in json.loads(Path(rules_path).read_text(encoding="utf-8"))]
-    expected_list = json.loads(Path(expected_path).read_text(encoding="utf-8"))
+
+    try:
+        rules = [RuleInput(**r) for r in json.loads(Path(rules_path).read_text(encoding="utf-8"))]
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        raise ValueError(f"rules.json không hợp lệ: {e} — kiểm tra format JSON tại {rules_path}")
+
+    try:
+        expected_list = json.loads(Path(expected_path).read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, TypeError) as e:
+        raise ValueError(f"expected_results.json không hợp lệ: {e} — kiểm tra format JSON tại {expected_path}")
 
     # ── Shared XML cache (tất cả agents chia sẻ parsed trees) ──
     # Lock protects concurrent access to lxml trees (not thread-safe for reads)

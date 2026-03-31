@@ -178,7 +178,9 @@ class Validator:
                 # Ghi nhận lỗi đầu tiên (context cho agent retry)
                 if first_fail_tc is None:
                     first_fail_tc = tc.model_path
-                    first_fail_stdout = exec_result["stdout"]
+                    # Truncate here (display only) — comparison already used full stdout
+                    raw_out = exec_result["stdout"]
+                    first_fail_stdout = raw_out[:settings.STDOUT_TRUNCATION] if len(raw_out) > settings.STDOUT_TRUNCATION else raw_out
                     first_fail_actual = comparison["actual_summary"]
                     first_fail_expected = comparison["expected_summary"]
                     first_fail_details = comparison.get("actual_details")
@@ -221,7 +223,9 @@ class Validator:
             )
             return {
                 "exit_code": result.returncode,
-                "stdout": result.stdout[:settings.STDOUT_TRUNCATION] if len(result.stdout) > settings.STDOUT_TRUNCATION else result.stdout,
+                # Keep FULL stdout — _compare() calls json.loads() on it.
+                # Truncation for display happens ONLY when storing first_fail_stdout.
+                "stdout": result.stdout,
                 "stderr": result.stderr[-settings.STDERR_TRUNCATION:] if len(result.stderr) > settings.STDERR_TRUNCATION else result.stderr,
             }
         except subprocess.TimeoutExpired:
