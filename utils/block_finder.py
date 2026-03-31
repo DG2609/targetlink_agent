@@ -19,6 +19,54 @@ Dùng trong generated_checks/:
 from lxml import etree
 
 
+# ──────────────────────────────────────────────────────────────────────
+# Internal safe-lookup helpers (no XPath f-string injection risk)
+# ──────────────────────────────────────────────────────────────────────
+
+def _find_p(parent: etree._Element, name: str) -> "etree._Element | None":
+    """Find first <P Name="..."> child by attribute comparison (injection-safe)."""
+    for p in parent.findall("P"):
+        if p.get("Name") == name:
+            return p
+    return None
+
+
+def _find_mask_param(mask_elem: etree._Element, name: str) -> "etree._Element | None":
+    """Find first <MaskParameter Name="..."> child (injection-safe)."""
+    for mp in mask_elem.findall("MaskParameter"):
+        if mp.get("Name") == name:
+            return mp
+    return None
+
+
+def _read_p_value(
+    parent: etree._Element,
+    name: str,
+) -> "str | None":
+    """Read text of <P Name="..."> including <Array><D>...</D></Array> form.
+
+    Returns:
+        str value, or None if not found.
+        Array params are joined with '|': e.g. "0|1|2" for <D>0</D><D>1</D><D>2</D>
+    """
+    node = _find_p(parent, name)
+    if node is None:
+        return None
+    if node.text is not None:
+        return node.text.strip()
+    # Array form: <P Name="..."><Array><D>val</D>...</Array></P>
+    array_node = node.find("Array")
+    if array_node is not None:
+        d_values = [(d.text or "").strip() for d in array_node.findall("D") if d.text]
+        if d_values:
+            return "|".join(d_values)
+    return None
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Public API
+# ──────────────────────────────────────────────────────────────────────
+
 def find_blocks(root: etree._Element, block_identifier: str) -> list[etree._Element]:
     """Tìm tất cả blocks matching identifier trong 1 system XML root.
 
@@ -49,32 +97,31 @@ def find_blocks(root: etree._Element, block_identifier: str) -> list[etree._Elem
                 return
             seen_sids.add(sid)
         else:
-            # Blocks without SID: dedup by object identity
             obj_id = id(block)
             if obj_id in seen_ids:
                 return
             seen_ids.add(obj_id)
         results.append(block)
 
-    # 1. Native BlockType match
-    for block in root.findall(f"Block[@BlockType='{block_identifier}']"):
-        _add(block)
-
-    # 2. MaskType match (TargetLink / custom masked blocks)
-    #    BlockType thường là "SubSystem" nhưng MaskType mới là identity thật
     for block in root.findall("Block"):
-        mask_node = block.find("P[@Name='MaskType']")
+        # 1. Native BlockType match (safe attribute comparison — avoids XPath injection)
+        if block.get("BlockType") == block_identifier:
+            _add(block)
+            continue
+
+        # 2. MaskType match (TargetLink / custom masked blocks)
+        mask_node = _find_p(block, "MaskType")
         if mask_node is not None and mask_node.text is not None:
             if mask_node.text.strip() == block_identifier:
                 _add(block)
+                continue
 
-    # 3. SourceType match (Reference blocks từ library)
-    #    BlockType="Reference" + SourceType="Compare To Constant"
-    for block in root.findall("Block[@BlockType='Reference']"):
-        source_node = block.find("P[@Name='SourceType']")
-        if source_node is not None and source_node.text is not None:
-            if source_node.text.strip() == block_identifier:
-                _add(block)
+        # 3. SourceType match (Reference blocks từ library)
+        if block.get("BlockType") == "Reference":
+            source_node = _find_p(block, "SourceType")
+            if source_node is not None and source_node.text is not None:
+                if source_node.text.strip() == block_identifier:
+                    _add(block)
 
     return results
 
@@ -108,18 +155,15 @@ def get_block_identity(block: etree._Element) -> str:
     Returns:
         Identity string (MaskType hoặc SourceType hoặc BlockType).
     """
-    # MaskType ưu tiên cao nhất (TL blocks)
-    mask_node = block.find("P[@Name='MaskType']")
+    mask_node = _find_p(block, "MaskType")
     if mask_node is not None and mask_node.text and mask_node.text.strip():
         return mask_node.text.strip()
 
-    # SourceType cho Reference blocks
     if block.get("BlockType") == "Reference":
-        source_node = block.find("P[@Name='SourceType']")
+        source_node = _find_p(block, "SourceType")
         if source_node is not None and source_node.text and source_node.text.strip():
             return source_node.text.strip()
 
-    # Fallback: BlockType
     return block.get("BlockType", "Unknown")
 
 
@@ -167,35 +211,30 @@ def find_blocks_with_config(
     results: list[etree._Element] = []
 
     for block in root.findall("Block"):
-        # Direct <P>
-        node = block.find(f"P[@Name='{config_name}']")
-        if node is not None:
+        # 1. Direct <P>
+        if _find_p(block, config_name) is not None:
             results.append(block)
             continue
 
-        # InstanceData/<P>
+        # 2. InstanceData/<P>
         instance = block.find("InstanceData")
-        if instance is not None:
-            node = instance.find(f"P[@Name='{config_name}']")
-            if node is not None:
-                results.append(block)
-                continue
+        if instance is not None and _find_p(instance, config_name) is not None:
+            results.append(block)
+            continue
 
-        # MaskValueString (pipe-separated, keyed by MaskNames)
-        mask_names_node = block.find("P[@Name='MaskNames']")
+        # 3. MaskValueString (pipe-separated, keyed by MaskNames)
+        mask_names_node = _find_p(block, "MaskNames")
         if mask_names_node is not None and mask_names_node.text:
             names = mask_names_node.text.split("|")
             if config_name in (n.strip() for n in names):
                 results.append(block)
                 continue
 
-        # Mask/MaskParameter (newer Simulink format)
+        # 4. Mask/MaskParameter (newer Simulink format)
         mask_elem = block.find("Mask")
-        if mask_elem is not None:
-            mp = mask_elem.find(f"MaskParameter[@Name='{config_name}']")
-            if mp is not None:
-                results.append(block)
-                continue
+        if mask_elem is not None and _find_mask_param(mask_elem, config_name) is not None:
+            results.append(block)
+            continue
 
     return results
 
@@ -203,8 +242,8 @@ def find_blocks_with_config(
 def get_block_config(
     block: etree._Element,
     config_name: str,
-    default_value: str | None = None,
-) -> str | None:
+    default_value: "str | None" = None,
+) -> "str | None":
     """Đọc config value từ block — check cả 5 vị trí.
 
     Thứ tự tìm:
@@ -225,46 +264,34 @@ def get_block_config(
         VD: <Array><D>fixdt(1,16,12)</D></Array> → "fixdt(1,16,12)"
         VD: <Array><D>0</D><D>1</D><D>2</D></Array> → "0|1|2"
     """
-    # 1. Direct <P>
-    node = block.find(f"P[@Name='{config_name}']")
-    if node is not None:
-        if node.text is not None:
-            return node.text.strip()
-        array_node = node.find("Array")
-        if array_node is not None:
-            d_values = [d.text.strip() for d in array_node.findall("D") if d.text]
-            if d_values:
-                return "|".join(d_values)
+    # 1. Direct <P> (injection-safe via _read_p_value)
+    val = _read_p_value(block, config_name)
+    if val is not None:
+        return val
 
     # 2. InstanceData/<P>
     instance = block.find("InstanceData")
     if instance is not None:
-        node = instance.find(f"P[@Name='{config_name}']")
-        if node is not None:
-            if node.text is not None:
-                return node.text.strip()
-            array_node = node.find("Array")
-            if array_node is not None:
-                d_values = [d.text.strip() for d in array_node.findall("D") if d.text]
-                if d_values:
-                    return "|".join(d_values)
+        val = _read_p_value(instance, config_name)
+        if val is not None:
+            return val
 
     # 3. MaskValueString (pipe-separated values keyed by MaskNames)
-    mask_names_node = block.find("P[@Name='MaskNames']")
-    mask_values_node = block.find("P[@Name='MaskValueString']")
+    mask_names_node = _find_p(block, "MaskNames")
+    mask_values_node = _find_p(block, "MaskValueString")
     if mask_names_node is not None and mask_values_node is not None:
-        names_text = mask_names_node.text or ""
-        values_text = mask_values_node.text or ""
-        names = names_text.split("|")
-        values = values_text.split("|")
+        names = (mask_names_node.text or "").split("|")
+        values = (mask_values_node.text or "").split("|")
         for i, name in enumerate(names):
-            if name.strip() == config_name and i < len(values):
-                return values[i].strip()
+            if name.strip() == config_name:
+                if i < len(values):
+                    return values[i].strip()
+                break  # name matched but index out of range — no value
 
     # 3.5 Mask/MaskParameter (newer Simulink format)
     mask_elem = block.find("Mask")
     if mask_elem is not None:
-        mp = mask_elem.find(f"MaskParameter[@Name='{config_name}']")
+        mp = _find_mask_param(mask_elem, config_name)
         if mp is not None:
             val = mp.get("Value", "")
             if val:

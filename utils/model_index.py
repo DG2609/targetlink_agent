@@ -85,7 +85,10 @@ class ModelIndex:
             if system_ref_elem is not None:
                 ref = system_ref_elem.get("Ref", "")
                 if ref:
-                    child_file = f"simulink/systems/{ref}.xml"
+                    # Normalize Ref: strip path prefix/extension for all Simulink versions
+                    # "system_6" / "system_6.xml" / "simulink/systems/system_6" → "system_6"
+                    ref_stem = Path(ref).stem
+                    child_file = f"simulink/systems/{ref_stem}.xml"
                     child = self._parse_system_node(sub_name, child_file)
                     child["sid"] = sid
                     node["children"].append(child)

@@ -29,6 +29,9 @@ def parse_bddefaults(model_dir: str) -> dict[str, dict[str, str]]:
         VD: {"Gain": {"SaturateOnIntegerOverflow": "off", "Gain": "1", ...}}
         Trả về dict rỗng nếu file không tồn tại hoặc parse lỗi.
     """
+    # Normalize path to avoid duplicate cache entries from symlinks / relative paths
+    model_dir = str(Path(model_dir).resolve())
+
     if model_dir in _defaults_cache:
         return _defaults_cache[model_dir]
 
@@ -55,8 +58,13 @@ def parse_bddefaults(model_dir: str) -> dict[str, dict[str, str]]:
 
     defaults: dict[str, dict[str, str]] = {}
 
-    block_param_defaults = root.find(".//BlockParameterDefaults")
+    # Support both: root IS BlockParameterDefaults, or nested inside another element
+    if root.tag == "BlockParameterDefaults":
+        block_param_defaults = root
+    else:
+        block_param_defaults = root.find(".//BlockParameterDefaults")
     if block_param_defaults is None:
+        logger.warning(f"bddefaults.xml có cấu trúc không chuẩn (thiếu BlockParameterDefaults): {bd_path}")
         _defaults_cache[model_dir] = {}
         return {}
 

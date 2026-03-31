@@ -230,6 +230,85 @@ Chọn template phù hợp, thay thế `{PLACEHOLDERS}`, rồi dùng `write_pyth
 - Config của MaskType blocks thường nằm trong `InstanceData` hoặc `MaskValueString` (không phải direct `<P>`) vì TL blocks dùng mask mechanism khác standard Simulink
 - `get_block_config` đã handle cả 3 vị trí — không cần xử lý riêng
 
+## Production Mandatory Patterns
+
+Mọi script do Agent 2 sinh ra **bắt buộc** có các pattern sau — thiếu bất kỳ cái nào sẽ fail khi chạy trên model khác:
+
+### 1. Auto-extract .slx ở đầu check_rule()
+```python
+from utils.slx_extractor import extract_slx
+
+def check_rule(model_dir: str) -> dict:
+    model_dir = extract_slx(model_dir)  # MUST be first line — handles .slx file OR directory
+```
+Tại sao: Pipeline truyền đường dẫn `.slx` (file ZIP), không phải thư mục. Thiếu dòng này → "systems dir not found" ngay khi chạy trên model mới.
+
+### 2. Dùng defaults_parser thay vì parse bddefaults.xml thủ công
+```python
+from utils.defaults_parser import get_default_value
+
+default_val = get_default_value(model_dir, "{BLOCK_TYPE}", "{CONFIG_NAME}") or "{FALLBACK}"
+```
+Tại sao: `defaults_parser` cache kết quả, handle cả root element `<BlockParameterDefaults>` lẫn nested. Parse thủ công dễ sai và không cache.
+
+### 3. Safe SID lookup — KHÔNG dùng XPath f-string
+```python
+# ĐÚNG — attribute comparison (injection-safe):
+def _find_block_by_sid(root: etree._Element, sid: str) -> "etree._Element | None":
+    for block in root.iter("Block"):
+        if block.get("SID") == sid:
+            return block
+    return None
+
+# SAI — XPath f-string injection risk:
+# root.xpath(f".//Block[@SID='{sid}']")  ← NEVER use this
+```
+Tại sao: SID có thể chứa ký tự đặc biệt (dấu nháy, dấu gạch chéo). XPath f-string injection → crash hoặc silent wrong match.
+
+### 4. XML tree cache trong check_rule()
+```python
+xml_cache: dict[str, etree._Element] = {}
+
+for block_info in blocks:
+    system_file = block_info["system_file"]
+    if system_file not in xml_cache:
+        xml_cache[system_file] = etree.parse(os.path.join(model_dir, system_file)).getroot()
+    root = xml_cache[system_file]
+```
+Tại sao: Model lớn có hàng chục subsystem files. Không cache → re-parse O(N×M) cho N blocks × M files → chậm.
+
+### 5. Per-block try/except với stderr logging
+```python
+for block_info in blocks:
+    try:
+        ...
+    except etree.XMLSyntaxError as e:
+        print(f"[{rule_id}] Warning: failed to parse {system_file}: {e}", file=sys.stderr)
+    except Exception as e:
+        print(f"[{rule_id}] Warning: error processing block {name} (SID={sid}): {e}", file=sys.stderr)
+```
+Tại sao: 1 block lỗi không được crash toàn bộ script. Log ra stderr (không stdout) để không phá JSON output.
+
+### 6. Systems dir existence check
+```python
+systems_dir = os.path.join(model_dir, "simulink", "systems")
+if not os.path.isdir(systems_dir):
+    print(f"[{rule_id}] Warning: systems dir not found: {systems_dir}", file=sys.stderr)
+    return {"rule_id": "{rule_id}", "total_blocks": 0, "pass_count": 0, "fail_count": 0, "details": results}
+```
+Tại sao: Model từ Simulink version khác có thể có cấu trúc thư mục khác. Check trước, fail gracefully.
+
+### 7. sys.argv bounds check
+```python
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: python check_rule_{rule_id}.py <model_dir>")
+        sys.exit(1)
+```
+Tại sao: Pipeline kiểm tra exit code. Thiếu argv[1] → IndexError không bắt được → silent crash.
+
+---
+
 ## Quy tắc code (Agent 3 kiểm tra tự động)
 
 Agent 3 chạy static check trước khi execute. Các quy tắc này tồn tại vì Agent 3 parse code tự động — vi phạm sẽ gây CODE_ERROR ngay:

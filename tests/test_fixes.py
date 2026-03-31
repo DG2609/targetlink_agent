@@ -677,6 +677,7 @@ class TestZipSlipProtection:
         from utils.slx_extractor import extract_slx
         zip_path = self._make_zip(tmp_path, [
             ("simulink/blockdiagram.xml", "<root/>"),
+            ("simulink/systems/system_root.xml", "<System/>"),
             ("metadata/coreProperties.xml", "<props/>"),
         ])
         # Rename to .slx
@@ -721,7 +722,7 @@ class TestZipSlipProtection:
             extract_slx(slx_path)
 
     def test_no_xml_raises_value_error(self, tmp_path):
-        """A valid ZIP with no .xml files should raise ValueError."""
+        """A valid ZIP missing system_root.xml should raise ValueError."""
         import zipfile, shutil
         from utils.slx_extractor import extract_slx, _extract_cache
         zip_path = str(tmp_path / "no_xml.zip")
@@ -730,7 +731,7 @@ class TestZipSlipProtection:
         slx_path = str(tmp_path / "no_xml.slx")
         shutil.move(zip_path, slx_path)
         _extract_cache.pop(slx_path, None)
-        with pytest.raises(ValueError, match="Không tìm thấy file XML"):
+        with pytest.raises(ValueError, match="system_root.xml"):
             extract_slx(slx_path)
 
     def test_missing_file_raises_file_not_found(self, tmp_path):
@@ -754,6 +755,7 @@ class TestZipSlipProtection:
         from utils.slx_extractor import extract_slx, _extract_cache
         from pathlib import Path
         zip_path = self._make_zip(tmp_path, [
+            ("simulink/systems/system_root.xml", "<System/>"),
             ("a/b/c/d/blockdiagram.xml", "<root/>"),
             ("a/b/c/d/config.xml", "<cfg/>"),
         ])
@@ -1262,6 +1264,7 @@ class TestSlxExtractorThreadSafety:
         zip_path = str(tmp_path / "model_threadtest.zip")
         with zipfile.ZipFile(zip_path, "w") as zf:
             zf.writestr("simulink/blockdiagram.xml", "<root/>")
+            zf.writestr("simulink/systems/system_root.xml", "<System/>")
         slx_path = str(tmp_path / "model_threadtest.slx")
         shutil.move(zip_path, slx_path)
 
@@ -1281,6 +1284,7 @@ class TestSlxExtractorThreadSafety:
         zip_path = str(tmp_path / "concurrent_model.zip")
         with zipfile.ZipFile(zip_path, "w") as zf:
             zf.writestr("simulink/blockdiagram.xml", "<root/>")
+            zf.writestr("simulink/systems/system_root.xml", "<System/>")
         slx_path = str(tmp_path / "concurrent_model.slx")
         shutil.move(zip_path, slx_path)
         _extract_cache.pop(slx_path, None)

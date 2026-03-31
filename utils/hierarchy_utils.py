@@ -181,7 +181,14 @@ def _build_map_recursive(
         if system_ref is not None:
             ref = system_ref.get("Ref", "")
             if ref:
-                child_file = f"simulink/systems/{ref}.xml"
+                # Normalize Ref: strip path prefix and extension so it works for
+                # all Simulink versions. Examples:
+                #   "system_6"                      → "system_6" (most common)
+                #   "system_6.xml"                  → "system_6"
+                #   "simulink/systems/system_6"     → "system_6"
+                #   "simulink/systems/system_6.xml" → "system_6"
+                ref_stem = Path(ref).stem
+                child_file = f"simulink/systems/{ref_stem}.xml"
                 _build_map_recursive(
                     model_dir, child_file, sub_name, full_path,
                     depth + 1, sub_sid, cache, result,
@@ -370,14 +377,24 @@ def get_connections(
 
     for line in root.findall("Line"):
         src_text = _get_p_text(line, "Src")
+        if not src_text:
+            # Virtual / annotation line — no actual signal connection, skip
+            continue
+
         destinations = _collect_destinations(line)
+        if not destinations:
+            continue
 
         src_sid, src_port = _parse_endpoint(src_text)
+        if not src_sid:
+            continue
 
         # Block is the source -> outgoing connections
         if src_sid == block_sid:
             for dst_text in destinations:
                 dst_sid, dst_port = _parse_endpoint(dst_text)
+                if not dst_sid:
+                    continue
                 dst_info = sid_map.get(dst_sid, {
                     "sid": dst_sid, "name": "?", "type": "?",
                 })
