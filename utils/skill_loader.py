@@ -34,7 +34,12 @@ def load_skill(
     Raises:
         FileNotFoundError: Nếu SKILL.md không tồn tại
     """
-    skill_path = Path(skills_dir) / skill_name / "SKILL.md"
+    skills_root = Path(skills_dir).resolve()
+    skill_path = (skills_root / skill_name / "SKILL.md").resolve()
+    try:
+        skill_path.relative_to(skills_root)
+    except ValueError:
+        raise ValueError(f"Invalid skill_name (path traversal blocked): {skill_name!r}")
 
     if not skill_path.exists():
         raise FileNotFoundError(f"SKILL.md không tìm thấy: {skill_path}")
@@ -87,7 +92,12 @@ def load_skill_reference(
     Raises:
         FileNotFoundError: Nếu file không tồn tại.
     """
-    ref_path = Path(skills_dir) / skill_name / "references" / ref_name
+    skills_root = Path(skills_dir).resolve()
+    ref_path = (skills_root / skill_name / "references" / ref_name).resolve()
+    try:
+        ref_path.relative_to(skills_root)
+    except ValueError:
+        raise ValueError(f"Invalid ref_name (path traversal blocked): {ref_name!r}")
     if not ref_path.exists():
         raise FileNotFoundError(f"Reference không tìm thấy: {ref_path}")
     return ref_path.read_text(encoding="utf-8")

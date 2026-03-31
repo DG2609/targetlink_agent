@@ -57,7 +57,8 @@ def _read_p_value(
     # Array form: <P Name="..."><Array><D>val</D>...</Array></P>
     array_node = node.find("Array")
     if array_node is not None:
-        d_values = [(d.text or "").strip() for d in array_node.findall("D") if d.text]
+        # Filter out None AND whitespace-only text so we never return "||"
+        d_values = [d.text.strip() for d in array_node.findall("D") if d.text and d.text.strip()]
         if d_values:
             return "|".join(d_values)
     return None

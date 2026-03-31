@@ -454,7 +454,9 @@ def _resolve_goto_from(
 
     target_type = "From" if block_type == "Goto" else "Goto"
     results: list[dict] = []
-    for b in root.findall(f"Block[@BlockType='{target_type}']"):
+    for b in root.findall("Block"):
+        if b.get("BlockType") != target_type:
+            continue
         tag_node = b.find("P[@Name='GotoTag']")
         if tag_node is not None and tag_node.text and tag_node.text.strip() == goto_tag:
             results.append({
@@ -798,7 +800,9 @@ def _find_child_system_file(root: etree._Element, subsystem_sid: str) -> str | N
             if system_elem is not None:
                 ref = system_elem.get("Ref", "")
                 if ref:
-                    return f"simulink/systems/{ref}.xml"
+                    # Normalize: "system_6", "system_6.xml", or full path → stem only
+                    ref_stem = Path(ref).stem
+                    return f"simulink/systems/{ref_stem}.xml"
     return None
 
 
@@ -814,7 +818,9 @@ def _find_port_block(
     if root is None:
         return None
 
-    for block in root.findall(f"Block[@BlockType='{port_type}']"):
+    for block in root.findall("Block"):
+        if block.get("BlockType") != port_type:
+            continue
         port_p = block.xpath("P[@Name='Port']")
         block_port = "1"
         if port_p and port_p[0].text:

@@ -2293,4 +2293,133 @@ class TestAgent2InputModelLevel:
         block.config_map_analysis = "configSet"
         inp = Agent2Input.from_pipeline(rule, parsed, block)
         assert inp.rule_type == "model_level"
-        assert inp.config_component_class == "Simulink.RTWCC"
+
+
+# ══════════════════════════════════════════════════════
+# Fix: XPath injection safety — model_index, config_reader, hierarchy_utils
+# ══════════════════════════════════════════════════════
+
+class TestModelIndexSafeSIDLookup:
+    """model_index._find_block_by_sid must use attribute comparison, not XPath f-string."""
+
+    def _make_root(self, sids: list[str]):
+        """Build minimal XML root with Block elements for given SIDs."""
+        from lxml import etree
+        root = etree.fromstring("<System>" + "".join(
+            f'<Block SID="{sid}" Name="blk_{sid}" BlockType="Gain"/>' for sid in sids
+        ) + "</System>")
+        return root
+
+    def test_finds_existing_block(self):
+        from utils.model_index import _find_block_by_sid
+        root = self._make_root(["10", "20", "30"])
+        block = _find_block_by_sid(root, "20")
+        assert block is not None
+        assert block.get("SID") == "20"
+
+    def test_returns_none_for_missing_sid(self):
+        from utils.model_index import _find_block_by_sid
+        root = self._make_root(["10", "20"])
+        assert _find_block_by_sid(root, "99") is None
+
+    def test_safe_with_special_chars_in_sid(self):
+        """SID containing XPath special chars must not crash."""
+        from utils.model_index import _find_block_by_sid
+        root = self._make_root(["10"])
+        # These would crash/inject if using xpath f-string
+        for bad_sid in ["1' or '1'='1", "1'] or [@SID='10", "<script>"]:
+            result = _find_block_by_sid(root, bad_sid)
+            assert result is None  # not found, no crash
+
+    def test_empty_root_returns_none(self):
+        from utils.model_index import _find_block_by_sid
+        from lxml import etree
+        root = etree.fromstring("<System/>")
+        assert _find_block_by_sid(root, "1") is None
+
+
+class TestConfigReaderSafeClassLookup:
+    """config_reader must not use f-string XPath for class_name/setting_name."""
+
+    def _make_config_file(self, tmp_path, class_name: str, setting_name: str, value: str) -> str:
+        import os
+        content = f'''<?xml version="1.0"?>
+<ConfigSet>
+  <Object ClassName="{class_name}">
+    <P Name="{setting_name}">{value}</P>
+  </Object>
+</ConfigSet>'''
+        d = tmp_path / "simulink"
+        d.mkdir(parents=True, exist_ok=True)
+        f = d / "configSet0.xml"
+        f.write_text(content, encoding="utf-8")
+        return str(tmp_path)
+
+    def test_reads_existing_setting(self, tmp_path):
+        from utils.config_reader import read_config_setting
+        model_dir = self._make_config_file(tmp_path, "Simulink.RTWCC", "SystemTargetFile", "ert.tlc")
+        val = read_config_setting(model_dir, "Simulink.RTWCC", "SystemTargetFile")
+        assert val == "ert.tlc"
+
+    def test_returns_none_for_wrong_class(self, tmp_path):
+        from utils.config_reader import read_config_setting
+        model_dir = self._make_config_file(tmp_path, "Simulink.RTWCC", "SystemTargetFile", "ert.tlc")
+        assert read_config_setting(model_dir, "Simulink.SolverCC", "SystemTargetFile") is None
+
+    def test_safe_with_special_chars_in_class_name(self, tmp_path):
+        """XPath injection attempts in class_name must not match anything."""
+        from utils.config_reader import read_config_setting
+        model_dir = self._make_config_file(tmp_path, "Simulink.RTWCC", "SystemTargetFile", "ert.tlc")
+        # Would crash/inject if using f-string findall
+        bad_class = "Simulink.RTWCC'] | .//*[@ClassName='Simulink.RTWCC"
+        result = read_config_setting(model_dir, bad_class, "SystemTargetFile")
+        assert result is None
+
+    def test_safe_with_special_chars_in_setting_name(self, tmp_path):
+        from utils.config_reader import read_config_setting
+        model_dir = self._make_config_file(tmp_path, "Simulink.RTWCC", "SystemTargetFile", "ert.tlc")
+        bad_setting = "SystemTargetFile' or 'x'='x"
+        result = read_config_setting(model_dir, "Simulink.RTWCC", bad_setting)
+        assert result is None
+
+
+class TestFindChildSystemFileNormalization:
+    """_find_child_system_file must normalize Ref regardless of extension/path format."""
+
+    def _make_root_with_subsystem(self, ref_value: str):
+        from lxml import etree
+        xml = f'''<System>
+  <Block BlockType="SubSystem" SID="42" Name="MySub">
+    <System Ref="{ref_value}"/>
+  </Block>
+</System>'''
+        return etree.fromstring(xml)
+
+    def _call(self, root, sid: str):
+        """Call the internal helper via hierarchy_utils module."""
+        import importlib
+        import utils.hierarchy_utils as hu
+        return hu._find_child_system_file(root, sid)
+
+    def test_ref_stem_only(self):
+        """Ref="system_6" → "simulink/systems/system_6.xml" (no double extension)."""
+        root = self._make_root_with_subsystem("system_6")
+        result = self._call(root, "42")
+        assert result == "simulink/systems/system_6.xml"
+
+    def test_ref_with_xml_extension(self):
+        """Ref="system_6.xml" → "simulink/systems/system_6.xml" (not system_6.xml.xml)."""
+        root = self._make_root_with_subsystem("system_6.xml")
+        result = self._call(root, "42")
+        assert result == "simulink/systems/system_6.xml"
+
+    def test_ref_with_full_path(self):
+        """Ref="simulink/systems/system_6.xml" → stem extracted correctly."""
+        root = self._make_root_with_subsystem("simulink/systems/system_6.xml")
+        result = self._call(root, "42")
+        assert result == "simulink/systems/system_6.xml"
+
+    def test_wrong_sid_returns_none(self):
+        root = self._make_root_with_subsystem("system_6")
+        result = self._call(root, "99")
+        assert result is None

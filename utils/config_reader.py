@@ -66,10 +66,12 @@ def read_config_setting(
     except _etree.XMLSyntaxError:
         return None
 
-    for obj in tree.findall(f".//*[@ClassName='{class_name}']"):
-        node = obj.find(f"P[@Name='{setting_name}']")
-        if node is not None and node.text is not None:
-            return node.text.strip()
+    for obj in tree.findall(".//*[@ClassName]"):
+        if obj.get("ClassName") != class_name:
+            continue
+        for p in obj.findall("P"):
+            if p.get("Name") == setting_name and p.text is not None:
+                return p.text.strip()
     return None
 
 
@@ -99,7 +101,9 @@ def read_all_config_settings(
         return {}
 
     result: dict[str, str] = {}
-    for obj in tree.findall(f".//*[@ClassName='{class_name}']"):
+    for obj in tree.findall(".//*[@ClassName]"):
+        if obj.get("ClassName") != class_name:
+            continue
         for p in obj.findall("P"):
             name = p.get("Name", "")
             if name and p.text is not None:

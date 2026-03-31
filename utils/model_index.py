@@ -17,6 +17,14 @@ from lxml import etree
 from utils.defaults_parser import get_default_value
 
 
+def _find_block_by_sid(root: etree._Element, sid: str) -> "etree._Element | None":
+    """Safe SID lookup — attribute comparison instead of XPath f-string (injection-safe)."""
+    for block in root.iter("Block"):
+        if block.get("SID") == sid:
+            return block
+    return None
+
+
 class ModelIndex:
     """Pre-processed model data: hierarchy, block index, connections.
 
@@ -251,11 +259,10 @@ class ModelIndex:
         tree = self._get_tree(system_file)
         root = tree.getroot()
 
-        block_elems = root.xpath(f".//Block[@SID='{block_sid}']")
-        if not block_elems:
+        block = _find_block_by_sid(root, block_sid)
+        if block is None:
             return {"error": f"Block SID={block_sid} không tìm thấy trong {system_file}"}
 
-        block = block_elems[0]
         block_type = block.get("BlockType", "Unknown")
 
         # Explicit configs từ <P> elements
@@ -335,11 +342,10 @@ class ModelIndex:
         root = tree.getroot()
 
         # Block info
-        block_elems = root.xpath(f".//Block[@SID='{block_sid}']")
-        if not block_elems:
+        block_elem = _find_block_by_sid(root, block_sid)
+        if block_elem is None:
             return {"error": f"Block SID={block_sid} không tìm thấy trong {system_file}"}
 
-        block_elem = block_elems[0]
         block_info = {
             "name": block_elem.get("Name", "Unknown"),
             "type": block_elem.get("BlockType", "Unknown"),
@@ -419,11 +425,10 @@ class ModelIndex:
         # Block info
         tree = self._get_tree(system_file)
         root = tree.getroot()
-        block_elems = root.xpath(f".//Block[@SID='{start_block_sid}']")
-        if not block_elems:
+        block_elem = _find_block_by_sid(root, start_block_sid)
+        if block_elem is None:
             return {"error": f"Block SID={start_block_sid} không tìm thấy trong {system_file}"}
 
-        block_elem = block_elems[0]
         block_info = {
             "name": block_elem.get("Name", "Unknown"),
             "type": block_elem.get("BlockType", "Unknown"),
@@ -578,11 +583,9 @@ class ModelIndex:
         tree = self._get_tree(system_file)
         root = tree.getroot()
 
-        block_elems = root.xpath(f".//Block[@SID='{block_sid}']")
-        if not block_elems:
+        block = _find_block_by_sid(root, block_sid)
+        if block is None:
             return {"error": f"Block SID={block_sid} không tìm thấy trong {system_file}"}
-
-        block = block_elems[0]
 
         # Tất cả <P> configs
         raw_configs: dict[str, str] = {}
@@ -644,7 +647,7 @@ class ModelIndex:
         try:
             tree = self._get_tree(node["system_file"])
             root = tree.getroot()
-            if root.xpath(f".//Block[@SID='{block_sid}']"):
+            if _find_block_by_sid(root, block_sid) is not None:
                 return node["system_file"]
         except FileNotFoundError:
             pass
